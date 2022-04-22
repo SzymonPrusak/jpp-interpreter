@@ -19,15 +19,16 @@ separator   nonempty TupleSubType "," ;
 
 Prog.       Prog ::= [FunDef] ;
 
-FunDef.     FunDef ::= TypeName Ident "(" [FunParam] ")" StmtBlock;
+FunDef.     FunDef ::= "fun" TypeName Ident "(" [FunParam] ")" StmtBlock;
 terminator  FunDef "" ;
 
 FunParam.   FunParam ::= TypeDef Ident ; 
 separator   FunParam "," ;
 
-StmtBlock.  StmtBlock ::= "{" [Stmt] "}" ;
-SBBlock.    StmtBody ::= StmtBlock ;
-SBSingl.    StmtBody ::= Stmt ;
+StmtBlock.  StmtBlock ::= "{" [BlockStmt] "}" ;
+BSStmt.     BlockStmt ::= Stmt ;
+BSFunDef.   BlockStmt ::= FunDef ;
+terminator  BlockStmt "" ;
 
 ArrInit.    ArrayInit ::= "new" TypeName "[" Assignable "]" ;
 ArrConstr.  ArrayConstruction ::= "[" [ConstrEl] "]" ;
@@ -57,11 +58,11 @@ FunCall.    FunCall ::= Ident "(" [FunArg] ")" ;
 FunArg.     FunArg ::= Assignable ;
 separator   FunArg "," ;
 
-IfBranch.   IfBranch ::= "if" "(" Assignable ")" StmtBody ;
-IfElBranch. IfElseBranch ::= "if" "(" Assignable ")" StmtBlock "else" StmtBody ;
+IfBranch.   IfBranch ::= "if" "(" Assignable ")" Stmt ;
+IfElBranch. IfElseBranch ::= "if" "(" Assignable ")" StmtBlock "else" Stmt ;
 
-LoopWhile.  LoopWhile ::= "while" "(" Assignable ")" StmtBody ;
-LoopFor.    LoopFor ::= "for" "(" VarAssign "to" Assignable ")" StmtBody ;
+LoopWhile.  LoopWhile ::= "while" "(" Assignable ")" Stmt ;
+LoopFor.    LoopFor ::= "for" "(" VarAssign "to" Assignable ")" Stmt ;
 
 SEmpty.     Stmt ::= ";" ;
 SDecl.      Stmt ::= TypeDef Ident ";" ;
@@ -76,4 +77,5 @@ SReturn.    Stmt ::= "return" ";" ;
 SReturnVal. Stmt ::= "return" Assignable ";" ;
 SContinue.  Stmt ::= "continue" ";" ;
 SBreak.     Stmt ::= "break" ";" ;
+SSubBlock.  Stmt ::= StmtBlock ;
 terminator  Stmt "" ;

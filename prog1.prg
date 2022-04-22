@@ -1,12 +1,12 @@
 
 
 
-int main()
+fun int main()
 {
 
 }
 
-void chuj(readonly string bbb, bool c)
+fun void chuj(readonly string bbb, bool c)
 {
     ;
     ;
@@ -14,16 +14,16 @@ void chuj(readonly string bbb, bool c)
 
 }
 
-(int, bool) tuple()
+fun (int, bool) tuple()
 {
     return (1, true);
 }
 
-bool[] arr() {}
+fun bool[] arr() {}
 
-(int[], string)[] mix() {}
+fun (int[], string)[] mix() {}
 
-void stmt()
+fun void stmt()
 {
     ;
     int a;
@@ -40,24 +40,24 @@ void stmt()
 }
 
 
-void decon()
+fun void decon()
 {
     deconstr (int a, string b, deconstr (bool[] a, int[] c)) = (1, "a", ([true, false], [1, 2, 4, 8]));
 }
 
-void funCall()
+fun void funCall()
 {
     fun1();
     fun2(aa, 1, fun3(xd));
 }
 
-void tryIf()
+fun void tryIf()
 {
     if (aa) xd();
     if (bc) if(xddd) {} else ;
 }
 
-void tryLoops()
+fun void tryLoops()
 {
     while (1)
         print("noreturn");
@@ -79,4 +79,17 @@ void tryLoops()
     while (false) {
         continue;
     }
+}
+
+
+fun void nestedFun()
+{
+    if (a)
+    {
+        fun int test(int x) {}
+        test(1);
+    }
+
+    fun void proc() { print("from nested"); }
+    proc();
 }
