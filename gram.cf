@@ -72,4 +72,8 @@ SIf.        Stmt ::= IfBranch ;
 SIfEl.      Stmt ::= IfElseBranch ;
 SLoopWhile. Stmt ::= LoopWhile ;
 SLoopFor.   Stmt ::= LoopFor ;
+SReturn.    Stmt ::= "return" ";" ;
+SReturnVal. Stmt ::= "return" Assignable ";" ;
+SContinue.  Stmt ::= "continue" ";" ;
+SBreak.     Stmt ::= "break" ";" ;
 terminator  Stmt "" ;

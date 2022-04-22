@@ -16,7 +16,7 @@ void chuj(readonly string bbb, bool c)
 
 (int, bool) tuple()
 {
-
+    return (1, true);
 }
 
 bool[] arr() {}
@@ -68,6 +68,15 @@ void tryLoops()
         if (testI(i))
         {
             i = div(xd, 10);
+            return;
         }
+    }
+
+    while (true) {
+        break;
+    }
+    
+    while (false) {
+        continue;
     }
 }
