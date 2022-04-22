@@ -1,0 +1,55 @@
+token       PrimType    {"bool"} | {"string"} | {"int"} | {"void"} ;
+token       Bool {"true"} | {"false"} ;
+
+
+entrypoints Prog ;
+
+
+TMNone.     TypeMod ::= ;
+TMReadonly. TypeMod ::= "readonly" ;
+TNPrim.     TypeName ::= PrimType ;
+TNArr.      TypeName ::= ArrayType ;
+TNTuple.    TypeName ::= TupleType ;
+TypeDef.    TypeDef ::= TypeMod TypeName ;
+
+ArrType.    ArrayType ::= TypeName "[]" ;
+TupleType.  TupleType ::= "(" [TupleSubType] ")" ;
+TupleSType. TupleSubType ::= TypeName ;
+separator   TupleSubType "," ;
+
+Prog.       Prog ::= [FunDef] ;
+
+FunDef.     FunDef ::= TypeName Ident "(" [FunParam] ")" StmtBlock;
+terminator  FunDef "" ;
+
+FunParam.   FunParam ::= TypeDef Ident ; 
+separator   FunParam "," ;
+
+StmtBlock.  StmtBlock ::= "{" [Stmt] "}" ;
+
+ArrInit.    ArrayInit ::= "new" TypeName "[" Assignable "]" ;
+ArrConstr.  ArrayConstruction ::= "[" [ConstrEl] "]" ;
+TupleConstr. TupleConstruction ::= "(" [ConstrEl] ")" ;
+ConstrEl.   ConstrEl ::= Assignable ;
+separator   ConstrEl "," ;
+
+ArrAcc.     ArrayAccess ::= Ident "[" Assignable "]" ;
+
+AInt.       Assignable ::= Integer ;
+AString.    Assignable ::= String ;
+ABool.      Assignable ::= Bool ;
+AVarRef.    Assignable ::= Ident ;
+AArrInit.   Assignable ::= ArrayInit ;
+AArrConstr. Assignable ::= ArrayConstruction ;
+ATupleConstr. Assignable ::= TupleConstruction ;
+AArrAcc.    Assignable ::= ArrayAccess ;
+
+DeclSingl.  Decl ::= TypeDef Ident;
+DeclTuple.  Decl ::= "(" [Decl] ")" ;
+separator   Decl "," ;
+
+SEmpty.     Stmt ::= ;
+SDecl.      Stmt ::= Decl ;
+SAssign.    Stmt ::= Ident "=" Assignable ;
+SDeclAssign. Stmt ::= Decl "=" Assignable ;
+terminator  Stmt ";" ;
