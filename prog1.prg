@@ -44,3 +44,30 @@ void decon()
 {
     deconstr (int a, string b, deconstr (bool[] a, int[] c)) = (1, "a", ([true, false], [1, 2, 4, 8]));
 }
+
+void funCall()
+{
+    fun1();
+    fun2(aa, 1, fun3(xd));
+}
+
+void tryIf()
+{
+    if (aa) xd();
+    if (bc) if(xddd) {} else ;
+}
+
+void tryLoops()
+{
+    while (1)
+        print("noreturn");
+
+    for (i = 0 to x)
+    {
+        print(i);
+        if (testI(i))
+        {
+            i = div(xd, 10);
+        }
+    }
+}

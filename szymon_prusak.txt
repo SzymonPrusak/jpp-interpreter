@@ -48,6 +48,7 @@ VarDeclAssign -> VarDecl Assign
 -- Deklaracja i przypisanie z krotki (dekonstrukcja) np. "(readonly int a, string b, bool c) = (1, "aa", true)"
 TupleDeconstr -> "(" VarDeclList ")" Assign
 VarDeclList -> VarDeclList "," VarDecl | VarDecl
+===
 
 -- Instrukcja return
 Return -> "return" AnyObj | "return"
@@ -76,11 +77,13 @@ Stmt -> VarDecl ";"
 -- Wołanie funkcji np. "print("aaaaaaa")"
 FunCall -> FunName "(" ArgList ")"
 ArgList -> ArgList "," AnyObj | AnyObj
+===
 
 -- Definiowanie funkcji
 FunDef -> FunRetType FunName "(" ParamList ")" StmtBlock
 FunRetType -> "void" | TypeName
 ParamList -> ParamList "," VarDecl | VarDecl
+===
 
 -- if/if else
 IfBranch -> "if" "(" BoolObj ")" Stmt
@@ -88,9 +91,11 @@ IfElseBranch -> "if" "(" BoolObj ")" StmtBlock "else" Stmt
 -- Pętle
 WhileLoop -> "while" "(" BoolObj ")" Stmt
 ForLoop -> "for" "(" VarAssign "to" NumObj ")" Stmt
+===
 
 Program -> FunList
 FunList -> FunList FunDef | FunDef
+===
 
 
 ==============================
