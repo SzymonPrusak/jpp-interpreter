@@ -15,7 +15,7 @@ TypeDef.    TypeDef ::= TypeMod TypeName ;
 ArrType.    ArrayType ::= TypeName "[]" ;
 TupleType.  TupleType ::= "(" [TupleSubType] ")" ;
 TupleSType. TupleSubType ::= TypeName ;
-separator   TupleSubType "," ;
+separator   nonempty TupleSubType "," ;
 
 Prog.       Prog ::= [FunDef] ;
 
@@ -31,7 +31,7 @@ ArrInit.    ArrayInit ::= "new" TypeName "[" Assignable "]" ;
 ArrConstr.  ArrayConstruction ::= "[" [ConstrEl] "]" ;
 TupleConstr. TupleConstruction ::= "(" [ConstrEl] ")" ;
 ConstrEl.   ConstrEl ::= Assignable ;
-separator   ConstrEl "," ;
+separator   nonempty ConstrEl "," ;
 
 ArrAcc.     ArrayAccess ::= Ident "[" Assignable "]" ;
 
@@ -44,12 +44,12 @@ AArrConstr. Assignable ::= ArrayConstruction ;
 ATupleConstr. Assignable ::= TupleConstruction ;
 AArrAcc.    Assignable ::= ArrayAccess ;
 
-DeclSingl.  Decl ::= TypeDef Ident;
-DeclTuple.  Decl ::= "(" [Decl] ")" ;
-separator   Decl "," ;
+DeclASingl. DeclA ::= TypeDef Ident;
+DeclATuple. DeclA ::= "deconstr" "(" [DeclA] ")" ;
+separator   nonempty DeclA "," ;
 
 SEmpty.     Stmt ::= ;
-SDecl.      Stmt ::= Decl ;
+SDecl.      Stmt ::= TypeDef Ident ;
 SAssign.    Stmt ::= Ident "=" Assignable ;
-SDeclAssign. Stmt ::= Decl "=" Assignable ;
+SDeclAssign. Stmt ::= DeclA "=" Assignable ;
 terminator  Stmt ";" ;

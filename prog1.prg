@@ -38,3 +38,9 @@ void stmt()
 
     readonly int x = c[2];
 }
+
+
+void decon()
+{
+    deconstr (int a, string b, deconstr (bool[] a, int[] c)) = (1, "a", ([true, false], [1, 2, 4, 8]));
+}
