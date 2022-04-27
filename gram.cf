@@ -30,52 +30,72 @@ BSStmt.     BlockStmt ::= Stmt ;
 BSFunDef.   BlockStmt ::= FunDef ;
 terminator  BlockStmt "" ;
 
-ArrInit.    ArrayInit ::= "new" TypeName "[" Assignable "]" ;
+ArrInit.    ArrayInit ::= "new" TypeName "[" Exp "]" ;
 ArrConstr.  ArrayConstruction ::= "[" [ConstrEl] "]" ;
-TupleConstr. TupleConstruction ::= "(" [ConstrEl] ")" ;
-ConstrEl.   ConstrEl ::= Assignable ;
+TupleConstr. TupleConstruction ::= "(=" [ConstrEl] "=)" ;
+ConstrEl.   ConstrEl ::= Exp ;
 separator   nonempty ConstrEl "," ;
 
-ArrAcc.     ArrayAccess ::= Ident "[" Assignable "]" ;
+ArrAcc.     ArrayAccess ::= Ident "[" Exp "]" ;
 
-AInt.       Assignable ::= Integer ;
-AString.    Assignable ::= String ;
-ABool.      Assignable ::= Bool ;
-AVarRef.    Assignable ::= Ident ;
-AArrInit.   Assignable ::= ArrayInit ;
-AArrConstr. Assignable ::= ArrayConstruction ;
-ATupleConstr. Assignable ::= TupleConstruction ;
-AArrAcc.    Assignable ::= ArrayAccess ;
-AFunCall.   Assignable ::= FunCall ;
 
-VarAssign.  VarAssign ::= Ident "=" Assignable ;
+COEq.       CompOp ::= "==" ;
+CONeq.      CompOp ::= "!=" ;
+COGt.       CompOp ::= ">" ;
+COLt.       CompOp ::= "<" ;
+COGe.       CompOp ::= ">=" ;
+COLe.       CompOp ::= "<=" ;
+
+AOPlus.     AddOp ::= "+" ;
+AOMinus.    AddOp ::= "-" ;
+
+MOMul.      MulOp ::= "*" ;
+MODiv.      MulOp ::= "/" ;
+MOMod.      MulOp ::= "%" ;
+
+EInt.       Exp6 ::= Integer ;
+EString.    Exp6 ::= String ;
+EBool.      Exp6 ::= Bool ;
+EVarRef.    Exp6 ::= Ident ;
+EArrInit.   Exp6 ::= ArrayInit ;
+EArrConstr. Exp6 ::= ArrayConstruction ;
+ETupleConstr. Exp6 ::= TupleConstruction ;
+EArrAcc.    Exp6 ::= ArrayAccess ;
+EFunCall.   Exp6 ::= FunCall ;
+EMul.       Exp5 ::= Exp5 MulOp Exp6 ;
+EAdd.       Exp4 ::= Exp4 AddOp Exp5 ;
+EComp.      Exp3 ::= Exp4 CompOp Exp4 ;
+EAnd.       Exp2 ::= Exp2 "&&" Exp3 ;
+EOr.        Exp1 ::= Exp1 "||" Exp2 ;
+coercions   Exp 6 ;
+
+VarAssign.  VarAssign ::= Ident "=" Exp ;
 
 DeclASingl. DeclA ::= TypeDef Ident;
 DeclATuple. DeclA ::= "deconstr" "(" [DeclA] ")" ;
 separator   nonempty DeclA "," ;
 
 FunCall.    FunCall ::= Ident "(" [FunArg] ")" ;
-FunArg.     FunArg ::= Assignable ;
+FunArg.     FunArg ::= Exp ;
 separator   FunArg "," ;
 
-IfBranch.   IfBranch ::= "if" "(" Assignable ")" Stmt ;
-IfElBranch. IfElseBranch ::= "if" "(" Assignable ")" StmtBlock "else" Stmt ;
+IfBranch.   IfBranch ::= "if" "(" Exp ")" Stmt ;
+IfElBranch. IfElseBranch ::= "if" "(" Exp ")" StmtBlock "else" Stmt ;
 
-LoopWhile.  LoopWhile ::= "while" "(" Assignable ")" Stmt ;
-LoopFor.    LoopFor ::= "for" "(" VarAssign "to" Assignable ")" Stmt ;
+LoopWhile.  LoopWhile ::= "while" "(" Exp ")" Stmt ;
+LoopFor.    LoopFor ::= "for" "(" VarAssign "to" Exp ")" Stmt ;
 
 SEmpty.     Stmt ::= ";" ;
 SDecl.      Stmt ::= TypeDef Ident ";" ;
 SAssign.    Stmt ::= VarAssign ";" ;
-SDeclAssign. Stmt ::= DeclA "=" Assignable ";" ;
+SDeclAssign. Stmt ::= DeclA "=" Exp ";" ;
 SFunCall.   Stmt ::= FunCall ";" ;
 SIf.        Stmt ::= IfBranch ;
 SIfEl.      Stmt ::= IfElseBranch ;
 SLoopWhile. Stmt ::= LoopWhile ;
 SLoopFor.   Stmt ::= LoopFor ;
 SReturn.    Stmt ::= "return" ";" ;
-SReturnVal. Stmt ::= "return" Assignable ";" ;
+SReturnVal. Stmt ::= "return" Exp ";" ;
 SContinue.  Stmt ::= "continue" ";" ;
 SBreak.     Stmt ::= "break" ";" ;
 SSubBlock.  Stmt ::= StmtBlock ;
-terminator  Stmt "" ;
