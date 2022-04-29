@@ -1,5 +1,5 @@
 token       PrimType    {"bool"} | {"string"} | {"int"} | {"void"} ;
-token       Bool {"true"} | {"false"} ;
+token       Bool        {"true"} | {"false"} ;
 
 
 entrypoints Prog ;
@@ -10,22 +10,22 @@ TMReadonly. TypeMod ::= "readonly" ;
 TNPrim.     TypeName ::= PrimType ;
 TNArr.      TypeName ::= ArrayType ;
 TNTuple.    TypeName ::= TupleType ;
-TypeDef.    TypeDef ::= TypeMod TypeName ;
+TypeDefin.  TypeDef ::= TypeMod TypeName ;
 
-ArrType.    ArrayType ::= TypeName "[]" ;
-TupleType.  TupleType ::= "(" [TupleSubType] ")" ;
+TArrayType. ArrayType ::= TypeName "[]" ;
+TTupleType. TupleType ::= "(" [TupleSubType] ")" ;
 TupleSType. TupleSubType ::= TypeName ;
 separator   nonempty TupleSubType "," ;
 
-Prog.       Prog ::= [FunDef] ;
+Program.    Prog ::= [FunDef] ;
 
-FunDef.     FunDef ::= "fun" TypeName Ident "(" [FunParam] ")" StmtBlock;
+FunDefin.   FunDef ::= "fun" TypeName Ident "(" [FunParam] ")" StmtBlock;
 terminator  FunDef "" ;
 
-FunParam.   FunParam ::= TypeDef Ident ; 
+FunPar.     FunParam ::= TypeDef Ident ; 
 separator   FunParam "," ;
 
-StmtBlock.  StmtBlock ::= "{" [BlockStmt] "}" ;
+StmtBlck.   StmtBlock ::= "{" [BlockStmt] "}" ;
 BSStmt.     BlockStmt ::= Stmt ;
 BSFunDef.   BlockStmt ::= FunDef ;
 terminator  BlockStmt "" ;
@@ -33,11 +33,10 @@ terminator  BlockStmt "" ;
 ArrInit.    ArrayInit ::= "new" TypeName "[" Exp "]" ;
 ArrConstr.  ArrayConstruction ::= "[" [ConstrEl] "]" ;
 TupleConstr. TupleConstruction ::= "(=" [ConstrEl] "=)" ;
-ConstrEl.   ConstrEl ::= Exp ;
+ConstrElem. ConstrEl ::= Exp ;
 separator   nonempty ConstrEl "," ;
 
 ArrAcc.     ArrayAccess ::= Ident "[" Exp "]" ;
-
 
 COEq.       CompOp ::= "==" ;
 CONeq.      CompOp ::= "!=" ;
@@ -53,7 +52,10 @@ MOMul.      MulOp ::= "*" ;
 MODiv.      MulOp ::= "/" ;
 MOMod.      MulOp ::= "%" ;
 
-EInt.       Exp6 ::= Integer ;
+LInt.       IntLiteral ::= Integer ;
+LNInt.      IntLiteral ::= "-" Integer ;
+
+EInt.       Exp6 ::= IntLiteral ;
 EString.    Exp6 ::= String ;
 EBool.      Exp6 ::= Bool ;
 EVarRef.    Exp6 ::= Ident ;
@@ -69,25 +71,27 @@ EAnd.       Exp2 ::= Exp2 "&&" Exp3 ;
 EOr.        Exp1 ::= Exp1 "||" Exp2 ;
 coercions   Exp 6 ;
 
-VarAssign.  VarAssign ::= Ident "=" Exp ;
+AVar.       VarAssign ::= Ident "=" Exp ;
+AArrAcc.    ArrAccAssign ::= ArrayAccess "=" Exp ;
 
 DeclASingl. DeclA ::= TypeDef Ident;
 DeclATuple. DeclA ::= "deconstr" "(" [DeclA] ")" ;
 separator   nonempty DeclA "," ;
 
-FunCall.    FunCall ::= Ident "(" [FunArg] ")" ;
-FunArg.     FunArg ::= Exp ;
+FuncCall.   FunCall ::= Ident "(" [FunArg] ")" ;
+FuncArg.    FunArg ::= Exp ;
 separator   FunArg "," ;
 
-IfBranch.   IfBranch ::= "if" "(" Exp ")" Stmt ;
-IfElBranch. IfElseBranch ::= "if" "(" Exp ")" StmtBlock "else" Stmt ;
+IfBr.       IfBranch ::= "if" "(" Exp ")" Stmt ;
+IfElBr.     IfElseBranch ::= "if" "(" Exp ")" StmtBlock "else" Stmt ;
 
-LoopWhile.  LoopWhile ::= "while" "(" Exp ")" Stmt ;
-LoopFor.    LoopFor ::= "for" "(" VarAssign "to" Exp ")" Stmt ;
+LWhile.     LoopWhile ::= "while" "(" Exp ")" Stmt ;
+LFor.       LoopFor ::= "for" "(" VarAssign "to" Exp ")" Stmt ;
 
 SEmpty.     Stmt ::= ";" ;
 SDecl.      Stmt ::= TypeDef Ident ";" ;
 SAssign.    Stmt ::= VarAssign ";" ;
+SArrAssign. Stmt ::= ArrAccAssign ";" ;
 SDeclAssign. Stmt ::= DeclA "=" Exp ";" ;
 SFunCall.   Stmt ::= FunCall ";" ;
 SIf.        Stmt ::= IfBranch ;

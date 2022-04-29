@@ -1,1 +1,7 @@
 bnfc
+Gram
+Makefile
+
+*.hi
+*.exe
+*.o
