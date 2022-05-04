@@ -3,7 +3,10 @@
 
 fun int main()
 {
-
+    fun int main()
+    {
+        fun int main() {}
+    }
 }
 
 fun void chuj(readonly string bbb, bool c)
