@@ -31,10 +31,21 @@ data Error =
     | VarRedef Ident BNFC'Position
     | UndefVar Ident BNFC'Position
     | ReadOnlyAssign Ident BNFC'Position
+    | TypeMissmatch Ident TypeName TypeName BNFC'Position
+    | ExpectedArray Ident BNFC'Position
     | UnexpectedErr
     deriving (Show)
 
 type TCReader a = ReaderT TCEnv (ExceptT Error Identity) a 
+
+
+intTn :: TypeName
+intTn = TNPrim Nothing $ PTInt Nothing
+stringTn :: TypeName
+stringTn = TNPrim Nothing $ PTString Nothing
+boolTn :: TypeName
+boolTn = TNPrim Nothing $ PTBool Nothing
+
 
 
 runTc :: [FunDef] -> Either Error ()
@@ -93,30 +104,78 @@ tcFunDef (FunDefin pos retTn name params (StmtBlck _ bs)) = do
 
 
 tcStmts :: [Stmt] -> TCReader ()
+
 tcStmts [] = return ()
 tcStmts (SEmpty {}:xs) = tcStmts xs
+
 tcStmts ((SDecl pos td name):xs) = do
     env <- ask
     if M.member name (vars env)
         then throwError $ VarRedef name pos
         else local (addVar td name) $ tcStmts xs
-    tcStmts xs
-tcStmts ((SAssign pos avar):xs) = do
+
+tcStmts ((SAssign pos (AVar _ name exp)):xs) = do
     env <- ask
-    case checkAssign avar (vars env) of
+    case checkAssign (getVarType name pos) env exp name pos of
         Right _ -> tcStmts xs
         Left err -> throwError err
 
-tcStmts _ = return ()
+tcStmts ((SArrAssign pos (AArrAcc _ a@(ArrAcc _ name posExp) exp)):xs) = do
+    env <- ask
+    case checkArrAssign env of
+        Right _ -> tcStmts xs
+        Left err -> throwError err
+    where
+        checkArrAssign env = do
+            indEt <- tcExp posExp env
+            if compareTypes indEt intTn
+                then checkAssign (getArrAccType a) env exp name pos
+                else throwError $ TypeMissmatch (Ident "index") intTn indEt pos
 
-checkAssign :: VarAssign -> VarMap -> Either Error ()
-checkAssign (AVar pos name exp) vars = do
-    (TypeDefin _ mod _) <- case M.lookup name vars of
-        Just td -> return td
-        Nothing -> throwError $ UndefVar name pos
-    case mod of
-        TMNone {} -> return ()
-        TMReadonly {} -> throwError $ ReadOnlyAssign name pos
+tcStmts (_:xs) = tcStmts xs
 
 addVar :: TypeDef -> Ident -> TCEnv -> TCEnv
 addVar td name env = env { vars = M.insert name td (vars env) }
+
+getVarType :: Ident -> BNFC'Position -> TCEnv -> Either Error (TypeName, TypeMod)
+getVarType name pos env = case M.lookup name (vars env) of
+    Just (TypeDefin _ mod tn) -> return (tn, mod)
+    Nothing -> throwError $ UndefVar name pos
+
+getArrAccType :: ArrayAccess -> TCEnv -> Either Error (TypeName, TypeMod)
+getArrAccType (ArrAcc pos name exp) env = do
+    (at, mod) <- getVarType name pos env
+    case at of
+        (TNArr _ (TArrayType _ st)) -> return (st, mod)
+        _ -> throwError $ ExpectedArray name pos
+
+checkAssign :: (TCEnv -> Either Error (TypeName, TypeMod)) -> TCEnv -> Exp -> Ident -> BNFC'Position -> Either Error ()
+checkAssign fun env exp name pos = do
+    (tn, mod) <- fun env
+    et <- tcExp exp env
+    if not $ compareTypes tn et
+        then throwError $ TypeMissmatch name tn et pos
+        else case mod of
+            TMNone {} -> return ()
+            TMReadonly {} -> throwError $ ReadOnlyAssign name pos
+
+
+compareTypes :: TypeName -> TypeName -> Bool
+compareTypes (TNPrim _ t1) (TNPrim _ t2) = comparePrimTypes t1 t2 where
+    comparePrimTypes :: PrimType -> PrimType -> Bool
+    comparePrimTypes PTBool {} PTBool {} = True
+    comparePrimTypes PTString {} PTString {} = True
+    comparePrimTypes PTInt {} PTInt {} = True
+    comparePrimTypes _ _ = False
+compareTypes (TNArr _ (TArrayType _ t1)) (TNArr _ (TArrayType _ t2)) = compareTypes t1 t2
+compareTypes (TNTuple _ (TTupleType _ t1)) (TNTuple _ (TTupleType _ t2)) = compareTupleSubTypes t1 t2 where
+    compareTupleSubTypes :: [TupleSubType] -> [TupleSubType] -> Bool
+    compareTupleSubTypes l1 l2
+        | length l1 /= length l2 = False
+        | otherwise = all doComparison $ zip t1 t2 where
+            doComparison (TupleSType _ t1, TupleSType _ t2) = compareTypes t1 t2
+compareTypes _ _ = False
+
+
+tcExp :: Exp -> TCEnv -> Either Error TypeName
+tcExp exp env = return intTn

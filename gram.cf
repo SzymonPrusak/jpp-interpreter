@@ -5,8 +5,8 @@ PTBool.     PrimType ::= "bool" ;
 PTString.   PrimType ::= "string" ;
 PTInt.      PrimType ::= "int" ;
 
-BTrue.      Bool ::= "true" ;
-BFalse.     Bool ::= "false" ;
+BTrue.      BoolLit ::= "true" ;
+BFalse.     BoolLit ::= "false" ;
 
 TMNone.     TypeMod ::= ;
 TMReadonly. TypeMod ::= "readonly" ;
@@ -63,7 +63,7 @@ LNInt.      IntLiteral ::= "-" Integer ;
 
 EInt.       Exp6 ::= IntLiteral ;
 EString.    Exp6 ::= String ;
-EBool.      Exp6 ::= Bool ;
+EBool.      Exp6 ::= BoolLit ;
 EVarRef.    Exp6 ::= Ident ;
 EArrInit.   Exp6 ::= ArrayInit ;
 EArrConstr. Exp6 ::= ArrayConstruction ;
