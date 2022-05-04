@@ -1,9 +1,12 @@
-token       PrimType    {"bool"} | {"string"} | {"int"} | {"void"} ;
-token       Bool        {"true"} | {"false"} ;
-
-
 entrypoints Prog ;
 
+
+PTBool.     PrimType ::= "bool" ;
+PTString.   PrimType ::= "string" ;
+PTInt.      PrimType ::= "int" ;
+
+BTrue.      Bool ::= "true" ;
+BFalse.     Bool ::= "false" ;
 
 TMNone.     TypeMod ::= ;
 TMReadonly. TypeMod ::= "readonly" ;
@@ -19,8 +22,11 @@ separator   nonempty TupleSubType "," ;
 
 Program.    Prog ::= [FunDef] ;
 
-FunDefin.   FunDef ::= "fun" TypeName Ident "(" [FunParam] ")" StmtBlock;
+FunDefin.   FunDef ::= "fun" FunRet Ident "(" [FunParam] ")" StmtBlock;
 terminator  FunDef "" ;
+
+FRType.     FunRet ::= TypeName ;
+FRVoid.     FunRet ::= "void" ;
 
 FunPar.     FunParam ::= TypeDef Ident ; 
 separator   FunParam "," ;

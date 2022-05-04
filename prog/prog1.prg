@@ -14,7 +14,7 @@ fun void chuj(readonly string bbb, bool c)
     ;
     ;
     ;
-
+    c = "";
 }
 
 fun (int, bool) tuple()
