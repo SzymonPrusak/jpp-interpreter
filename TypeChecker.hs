@@ -12,6 +12,7 @@ import Gram.Abs
 import Debug.Trace (trace)
 
 
+
 type FunMap = M.Map Ident FunDef
 type VarMap = M.Map Ident TypeDef
 type TCEnv = (FunMap, VarMap)
@@ -22,13 +23,14 @@ data Error = FunctionRedefinition Ident BNFC'Position
 type TCReader a = ReaderT TCEnv (ExceptT Error Identity) a 
 
 
+
 runTc :: [FunDef] -> Either Error ()
 runTc fs = (runIdentity . runExceptT . runReaderT (runTcReader fs)) (M.empty, M.empty) where
     runTcReader :: [FunDef] -> TCReader ()
     runTcReader fs = do
         processFuns fs
 
-      
+
 processFuns :: [FunDef] -> TCReader ()
 processFuns fs = case checkRedefs fs of
     Right _ -> local (addFuns fs) $ tcFunDefs fs
@@ -53,14 +55,14 @@ tcFunDefs (x:xs) = do
     tcFunDef x
     tcFunDefs xs
     where
-    tcFunDef :: FunDef -> TCReader ()
-    tcFunDef (FunDefin pos tn name params body) = do
-        trace (show name) $ pure ()
-        tcSubFunDefs body
+        tcFunDef :: FunDef -> TCReader ()
+        tcFunDef (FunDefin pos tn name params body) = do
+            trace (show name) $ pure ()
+            tcStmtBlock body
 
 
-tcSubFunDefs :: StmtBlock -> TCReader ()
-tcSubFunDefs (StmtBlck _ bs) = processFuns $ getSubFunDefs bs where
+tcStmtBlock :: StmtBlock -> TCReader ()
+tcStmtBlock (StmtBlck _ bs) = processFuns $ getSubFunDefs bs where
     getSubFunDefs :: [BlockStmt] -> [FunDef]
     getSubFunDefs ((BSFunDef _ fd):xs) = fd:getSubFunDefs xs
     getSubFunDefs (_:xs) = getSubFunDefs xs
