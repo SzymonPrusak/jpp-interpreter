@@ -19,7 +19,8 @@ fun int main2()
     c = test(new int[0]);
 
     bool d;
-    d = 5 * 10 > 4 && false != true || "" == "aaa";
+    d = 5 * 10 + 5 > 4 && false != true || "" == "aaa";
+    d = 10 / "aaa";
 }
 
 fun int test(readonly int[] a)

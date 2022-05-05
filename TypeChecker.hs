@@ -36,6 +36,7 @@ data Error =
     | UndefFun Ident BNFC'Position
     | InvalidFunArgs Ident [TypeName] [TypeName] BNFC'Position
     | VoidFunResult Ident BNFC'Position
+    | UnsuppAdd TypeName TypeName BNFC'Position
     | UnexpectedErr
     deriving (Show)
 
@@ -233,7 +234,17 @@ tcExp (EMul pos e1 _ e2) env = do
     expect2Int e1 e2 env pos
     return intTn
 
-tcExp (EAdd pos e1 op e2) env = undefined
+tcExp (EAdd pos e1 op e2) env = do
+    t1 <- tcExp e1 env
+    t2 <- tcExp e2 env
+    expectType t1 t2 (Ident "addition") pos
+    if isValidAdd t1 op
+        then return t1
+        else throwError $ UnsuppAdd t1 t2 pos
+    where
+        isValidAdd :: TypeName -> AddOp -> Bool
+        isValidAdd tn AOPlus {} = compareTypes tn stringTn || compareTypes tn intTn
+        isValidAdd tn AOMinus {} = compareTypes tn intTn
 
 tcExp (EComp pos e1 op e2) env
     | isEqComp op = do
