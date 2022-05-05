@@ -38,7 +38,7 @@ terminator  BlockStmt "" ;
 
 ArrInit.    ArrayInit ::= "new" TypeName "[" Exp "]" ;
 ArrConstr.  ArrayConstruction ::= "[" [ConstrEl] "]" ;
-TupleConstr. TupleConstruction ::= "(=" [ConstrEl] "=)" ;
+TupleConstr. TupleConstruction ::= "~(" [ConstrEl] ")~" ;
 ConstrElem. ConstrEl ::= Exp ;
 separator   nonempty ConstrEl "," ;
 

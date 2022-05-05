@@ -53,6 +53,9 @@ boolTn = TNPrim Nothing $ PTBool Nothing
 arrayTn :: TypeName -> TypeName
 arrayTn tn = TNArr Nothing $ TArrayType Nothing tn
 
+tupleTn :: [TypeName] -> TypeName
+tupleTn ts = TNTuple Nothing $ TTupleType Nothing $ map (TupleSType Nothing) ts
+
 
 runTc :: [FunDef] -> Either Error ()
 runTc fs = (runIdentity . runExceptT . runReaderT (runTcReader fs)) emptyTcEnv where
@@ -197,8 +200,22 @@ tcExp (EArrInit pos (ArrInit _ tn cExp)) env = do
     expectType intTn cet (Ident "new[]") pos
     return $ arrayTn tn
 
--- tcExp (EArrConstr _ _) env = undefined
--- tcExp (ETupleConstr _ _) env = undefined
+tcExp (EArrConstr pos (ArrConstr _ els)) env = do
+    etn <- tcEls els
+    return $ arrayTn etn
+    where
+        tcEls :: [ConstrEl] -> Either Error TypeName
+        tcEls [] = error "empty array construction - should be handled by grammar"
+        tcEls [ConstrElem _ exp] = tcExp exp env
+        tcEls ((ConstrElem elPos exp):xs) = do
+            restTn <- tcEls xs
+            expTn <- tcExp exp env
+            expectType restTn expTn (Ident "array construction") elPos
+            return expTn
+
+tcExp (ETupleConstr pos (TupleConstr _ els)) env = do
+    ts <- mapM (`tcConstrEl` env) els 
+    return $ tupleTn ts
 
 tcExp (EArrAcc pos a@(ArrAcc _ name indExp)) env = do
     (atn, _) <- getArrAccType a env
@@ -269,8 +286,6 @@ tcExp (EOr pos e1 e2) env = do
     expect2Bool e1 e2 env pos
     return boolTn
 
-tcExp _ _ = return boolTn;
-
 expectType :: TypeName -> TypeName -> Ident -> BNFC'Position -> Either Error ()
 expectType expected actual name pos = if compareTypes expected actual
     then return ()
@@ -291,3 +306,6 @@ expect2Int = expect2 intTn
 
 expect2Bool :: Exp -> Exp -> TCEnv -> BNFC'Position -> Either Error ()
 expect2Bool = expect2 boolTn
+
+tcConstrEl :: ConstrEl -> TCEnv -> Either Error TypeName
+tcConstrEl (ConstrElem _ exp) = tcExp exp
