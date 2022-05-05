@@ -11,6 +11,9 @@ import Gram.Abs
 import TypeHelper
 
 import Debug.Trace (trace)
+{-
+1. domyślny return
+-}
 
 
 
@@ -45,8 +48,10 @@ addVars ((td, name):xs) env = addVar td name $ addVars xs env
 setRetType :: RetTypeInfo -> TCEnvMod
 setRetType rt env = env { retType = rt }
 
-enterLoop :: TCEnvMod
-enterLoop env = env { inLoop = True }
+modLoop :: Bool -> TCEnvMod
+modLoop v env = env { inLoop = v }
+enterLoop = modLoop True
+exitLoop = modLoop False
 
 
 data Error =
@@ -96,7 +101,7 @@ checkFunRedefs ((FunDefin pos _ name _ _):xs) = do
 tcFunDefs :: [FunDef] -> TCReader ()
 tcFunDefs = foldr ((>>) . tcFunDef) (return ())
 tcFunDef :: FunDef -> TCReader ()
-tcFunDef (FunDefin _ retTn name params b) = tcStmtBlock b (setParamVars params . addRetType retTn) where
+tcFunDef (FunDefin _ retTn name params b) = tcStmtBlock b (setParamVars params . addRetType retTn . exitLoop) where
     setParamVars :: [FunParam] -> TCEnvMod
     setParamVars params = addVars (map (\(FunPar _ td name) -> (td, name)) params) . clearVars
     addRetType :: FunRet -> TCEnvMod
@@ -139,22 +144,26 @@ tcStmt (SDecl pos td name) = declareVar td name pos
 
 tcStmt (SAssign pos (AVar _ name exp)) = do
     env <- ask
-    case checkAssign (getVarType name pos) env exp name pos of
-        Right _ -> return id
+    case do
+        (tn, tmod) <- getVarType name pos env
+        expect tn exp env name pos
+        checkAssignment tmod name pos
+        of
         Left err -> throwError err
+        Right _ -> return id
 
 tcStmt (SArrAssign pos (AArrAcc _ a@(ArrAcc _ name posExp) exp)) = do
     env <- ask
-    case checkArrAssign env of
+    case do
+        (tn, tmod) <- getArrAccType a env
+        expect tn exp env name pos
+        checkAssignment tmod name pos
+        expectInt posExp env (Ident "index") pos
+        of
         Right _ -> return id
         Left err -> throwError err
-    where
-        checkArrAssign env = do
-            expectInt posExp env (Ident "index") pos
-            checkAssign (getArrAccType a) env exp name pos
 
-tcStmt (SDeclAssign pos (DeclASingl _ td@(TypeDefin _ _ tn) name) exp) = do
-    trace (show pos) $ pure ()
+tcStmt (SDeclAssign pos (DeclASingl _ td@(TypeDefin _ tn _) name) exp) = do
     m <- declareVar td name pos
     env <- ask
     case expect tn exp env name pos of
@@ -194,11 +203,11 @@ tcStmt (SLoopWhile pos (LWhile _ exp ss)) = do
         Left err -> throwError err
 
 tcStmt (SLoopFor pos (LFor _ (AVar _ itName eFrom) eTo ss)) = do
-    declareVar (readOnlyTd intTn) itName pos
+    m <- declareVar (readOnlyTd intTn) itName pos
     env <- ask
     case expect2Int eFrom eTo env pos of
         Right _ -> do
-            local enterLoop $ tcStmt ss
+            local (m . enterLoop) $ tcStmt ss
             return id
         Left err -> throwError err
 
@@ -237,10 +246,15 @@ requireInLoop pos = do
         then return id
         else throwError $ NotInLoop pos
 
+checkAssignment :: TypeMod -> Ident -> BNFC'Position -> TCResult ()
+checkAssignment mod name pos = case mod of
+    TMNone {} -> return ()
+    TMReadonly {} -> throwError $ ReadOnlyAssign name pos
+
 
 getVarType :: Ident -> BNFC'Position -> TCEnv -> TCResult (TypeName, TypeMod)
 getVarType name pos env = case M.lookup name (vars env) of
-    Just (TypeDefin _ mod tn) -> return (tn, mod)
+    Just (TypeDefin _ tn mod) -> return (tn, mod)
     Nothing -> throwError $ UndefVar name pos
 
 getArrAccType :: ArrayAccess -> TCEnv -> TCResult (TypeName, TypeMod)
@@ -249,16 +263,6 @@ getArrAccType (ArrAcc pos name _) env = do
     case at of
         (TNArr _ (TArrayType _ st)) -> return (st, mod)
         _ -> throwError $ ExpectedArray name pos
-
-checkAssign :: (TCEnv -> TCResult (TypeName, TypeMod)) -> TCEnv -> Exp -> Ident -> BNFC'Position -> TCResult ()
-checkAssign fun env exp name pos = do
-    (tn, mod) <- fun env
-    et <- tcExp exp env
-    if not $ compareTypes tn et
-        then throwError $ TypeMissmatch name tn et pos
-        else case mod of
-            TMNone {} -> return ()
-            TMReadonly {} -> throwError $ ReadOnlyAssign name pos
 
 
 tcExp :: Exp -> TCEnv -> TCResult TypeName
@@ -284,9 +288,8 @@ tcExp (EArrConstr pos (ArrConstr _ els)) env = do
         tcEls [ConstrElem _ exp] = tcExp exp env
         tcEls ((ConstrElem elPos exp):xs) = do
             restTn <- tcEls xs
-            expTn <- tcExp exp env
-            expectSame restTn expTn (Ident "array construction") elPos
-            return expTn
+            expect restTn exp env (Ident "array construction") elPos
+            return restTn
 
 tcExp (ETupleConstr pos (TupleConstr _ els)) env = do
     ts <- mapM (\(ConstrElem _ exp) -> tcExp exp env) els
@@ -345,7 +348,7 @@ tcExp (EOr pos e1 e2) env = do
 
 tcFunCall :: TCEnv -> FunCall -> TCResult FunRet
 tcFunCall env (FuncCall pos name args) = do
-    (FunDefin _ frt _ params _) <-  case M.lookup name (funs env) of
+    (FunDefin _ frt _ params _) <- case M.lookup name (funs env) of
         Nothing -> throwError $ UndefFun name pos
         Just fd -> return fd
     a <- tcArgs env args
@@ -353,7 +356,7 @@ tcFunCall env (FuncCall pos name args) = do
     return frt
     where
         paramTypes :: [FunParam] -> [TypeName]
-        paramTypes = map (\(FunPar _ (TypeDefin _ _ tn) _) -> tn)
+        paramTypes = map (\(FunPar _ (TypeDefin _ tn _) _) -> tn)
         tcArgs :: TCEnv -> [FunArg] -> TCResult [TypeName]
         tcArgs env = mapM (\(FuncArg _ exp) -> tcExp exp env)
         tcFunArgs :: [TypeName] -> [TypeName] -> TCResult ()

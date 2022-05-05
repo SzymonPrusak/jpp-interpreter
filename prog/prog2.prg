@@ -45,8 +45,10 @@ fun int main2()
         test([1]);
 }
 
-fun int test(readonly int[] a)
+fun int test(int[] readonly a)
 {
-    int b = "aaa";
+    int b = 3;
     b = a[0];
+
+    string s = "aaa" + "bbb";
 }

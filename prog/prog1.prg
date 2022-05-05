@@ -9,12 +9,12 @@ fun int main()
     }
 }
 
-fun void chuj(readonly string bbb, bool c)
+fun void chuj( string readonly bbb, bool c)
 {
     ;
     ;
     ;
-    c = "";
+    c = false;
 }
 
 fun (int, bool) tuple()
@@ -30,47 +30,52 @@ fun void stmt()
 {
     ;
     int a;
-    readonly string c;
-    g = 18;
-    readonly bool a = true;
+     string readonly c;
+    a = 18;
+     bool readonly b = true;
 
-    readonly string[] a = new string[aaa];
+     string[] readonly d = new string[a];
 
-    (int, bool) a = ~( 1, true )~;
-    int[] c = [1, 2, 3];
+    (int, bool) e = ~( 1, true )~;
+    int[] f = [1, 2, 3];
 
-    readonly int x = c[2];
+     int readonly x = f[2];
 }
 
 
-fun void decon()
+fun bool decon()
 {
-    deconstr (int a, string b, deconstr (bool[] a, int[] c)) = ~( 1, "a", ~( [true, false], [1, 2, 4, 8] )~ )~;
+    ~(int a, string b, ~(bool[] a, int[] c)~)~ = ~( 1, "a", ~( [true, false], [1, 2, 4, 8] )~ )~;
+    return true;
 }
 
 fun void funCall()
 {
-    fun1();
-    fun2(aa, 1, fun3(xd));
+    decon();
+    chuj("aa", decon());
 }
 
 fun void tryIf()
 {
-    if (aa) xd();
-    if (bc) if(xddd) {} else ;
+    if (true) funCall();
+    bool a = false;
+    if (1 == 5) if(false) {} else ;
 }
+
+fun void printS(string s) {}
+fun void printI(int i) {}
 
 fun void tryLoops()
 {
-    while (1)
-        print("noreturn");
+    while (true)
+        printS("noreturn");
 
-    for (i = 0 to x)
+    for (i = 0 to 10)
     {
-        print(i);
-        if (testI(i))
+        printI(i);
+        if (false)
         {
-            i = div(xd, 10);
+            int i2 = i % 10;
             return;
         }
     }
@@ -87,18 +92,18 @@ fun void tryLoops()
 
 fun void nestedFun()
 {
-    if (a)
+    if (false)
     {
         fun int test(int x) {}
         test(1);
     }
 
-    fun void proc() { print("from nested"); }
+    fun void proc() { printS("from nested"); }
     proc();
 }
 
 
 fun void testArith()
 {
-    int a = 1 > 5 && 5 < 4;
+    bool a = 1 > 5 && 5 < 4;
 }

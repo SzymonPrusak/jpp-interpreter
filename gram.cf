@@ -1,3 +1,6 @@
+comment     "//" ;
+comment     "/*" "*/" ;
+
 entrypoints Prog ;
 
 
@@ -13,7 +16,7 @@ TMReadonly. TypeMod ::= "readonly" ;
 TNPrim.     TypeName ::= PrimType ;
 TNArr.      TypeName ::= ArrayType ;
 TNTuple.    TypeName ::= TupleType ;
-TypeDefin.  TypeDef ::= TypeMod TypeName ;
+TypeDefin.  TypeDef ::= TypeName TypeMod ;
 
 TArrayType. ArrayType ::= TypeName "[]" ;
 TTupleType. TupleType ::= "(" [TupleSubType] ")" ;
@@ -81,7 +84,7 @@ AVar.       VarAssign ::= Ident "=" Exp ;
 AArrAcc.    ArrAccAssign ::= ArrayAccess "=" Exp ;
 
 DeclASingl. DeclA ::= TypeDef Ident;
-DeclATuple. DeclA ::= "deconstr" "(" [DeclA] ")" ;
+DeclATuple. DeclA ::= "~(" [DeclA] ")~" ;
 separator   nonempty DeclA "," ;
 
 FuncCall.   FunCall ::= Ident "(" [FunArg] ")" ;
