@@ -33,6 +33,9 @@ data Error =
     | ReadOnlyAssign Ident BNFC'Position
     | TypeMissmatch Ident TypeName TypeName BNFC'Position
     | ExpectedArray Ident BNFC'Position
+    | UndefFun Ident BNFC'Position
+    | InvalidFunArgs Ident [TypeName] [TypeName] BNFC'Position
+    | VoidFunResult Ident BNFC'Position
     | UnexpectedErr
     deriving (Show)
 
@@ -46,6 +49,8 @@ stringTn = TNPrim Nothing $ PTString Nothing
 boolTn :: TypeName
 boolTn = TNPrim Nothing $ PTBool Nothing
 
+arrayTn :: TypeName -> TypeName
+arrayTn tn = TNArr Nothing $ TArrayType Nothing tn
 
 
 runTc :: [FunDef] -> Either Error ()
@@ -128,9 +133,8 @@ tcStmts ((SArrAssign pos (AArrAcc _ a@(ArrAcc _ name posExp) exp)):xs) = do
     where
         checkArrAssign env = do
             indEt <- tcExp posExp env
-            if compareTypes indEt intTn
-                then checkAssign (getArrAccType a) env exp name pos
-                else throwError $ TypeMissmatch (Ident "index") intTn indEt pos
+            expectType intTn indEt (Ident "index") pos
+            checkAssign (getArrAccType a) env exp name pos
 
 tcStmts (_:xs) = tcStmts xs
 
@@ -143,7 +147,7 @@ getVarType name pos env = case M.lookup name (vars env) of
     Nothing -> throwError $ UndefVar name pos
 
 getArrAccType :: ArrayAccess -> TCEnv -> Either Error (TypeName, TypeMod)
-getArrAccType (ArrAcc pos name exp) env = do
+getArrAccType (ArrAcc pos name _) env = do
     (at, mod) <- getVarType name pos env
     case at of
         (TNArr _ (TArrayType _ st)) -> return (st, mod)
@@ -178,4 +182,101 @@ compareTypes _ _ = False
 
 
 tcExp :: Exp -> TCEnv -> Either Error TypeName
-tcExp exp env = return intTn
+
+tcExp EInt {} env = return intTn
+tcExp EString {} env = return stringTn
+tcExp EBool {} env = return boolTn
+
+tcExp (EVarRef pos name) env = do
+    (tn, _) <- getVarType name pos env
+    return tn
+
+tcExp (EArrInit pos (ArrInit _ tn cExp)) env = do
+    cet <- tcExp cExp env
+    expectType intTn cet (Ident "new[]") pos
+    return $ arrayTn tn
+
+-- tcExp (EArrConstr _ _) env = undefined
+-- tcExp (ETupleConstr _ _) env = undefined
+
+tcExp (EArrAcc pos a@(ArrAcc _ name indExp)) env = do
+    (atn, _) <- getArrAccType a env
+    indExpT <- tcExp indExp env
+    expectType intTn indExpT (Ident "index") pos
+    return atn
+
+tcExp (EFunCall pos (FuncCall _ name args)) env = do
+    (FunDefin _ rt _ params _) <- case M.lookup name (funs env) of
+        Nothing -> throwError $ UndefFun name pos
+        Just fd -> return fd
+    rtn <- case rt of
+        FRVoid {} -> throwError $ VoidFunResult name pos
+        FRType _ tn -> return tn
+    a <- argTypes args
+    tcArgs (paramTypes params) a pos
+    return rtn
+    where
+        paramTypes :: [FunParam] -> [TypeName]
+        paramTypes p = map (\(FunPar _ (TypeDefin _ _ tn) _) -> tn) p
+        argTypes :: [FunArg] -> Either Error [TypeName]
+        argTypes a = mapM (\(FuncArg _ exp) -> tcExp exp env) a
+        tcArgs :: [TypeName] -> [TypeName] -> BNFC'Position -> Either Error ()
+        tcArgs params args pos
+            | length params /= length args = funArgsErr
+            | otherwise = if all (uncurry compareTypes) $ zip params args
+                then return ()
+                else funArgsErr
+                where
+                    funArgsErr = throwError $ InvalidFunArgs name params args pos
+
+tcExp (EMul pos e1 _ e2) env = do
+    expect2Int e1 e2 env pos
+    return intTn
+
+tcExp (EAdd pos e1 op e2) env = undefined
+
+tcExp (EComp pos e1 op e2) env
+    | isEqComp op = do
+        t1 <- tcExp e1 env
+        t2 <- tcExp e2 env
+        expectType t1 t2 (Ident "equality") pos
+        return boolTn
+    | otherwise = do
+        expect2Int e1 e2 env pos
+        return boolTn
+    where
+        isEqComp :: CompOp -> Bool
+        isEqComp COEq {} = True
+        isEqComp CONeq {} = True
+        isEqComp _ = False
+
+tcExp (EAnd pos e1 e2) env = do
+    expect2Bool e1 e2 env pos
+    return boolTn
+
+tcExp (EOr pos e1 e2) env = do
+    expect2Bool e1 e2 env pos
+    return boolTn
+
+tcExp _ _ = return boolTn;
+
+expectType :: TypeName -> TypeName -> Ident -> BNFC'Position -> Either Error ()
+expectType expected actual name pos = if compareTypes expected actual
+    then return ()
+    else throwError $ TypeMissmatch name expected actual pos
+
+expect :: TypeName -> Exp -> TCEnv -> Ident -> BNFC'Position -> Either Error ()
+expect expected exp env name pos = do
+    tn <- tcExp exp env
+    expectType expected tn name pos
+
+expect2 :: TypeName -> Exp -> Exp -> TCEnv -> BNFC'Position -> Either Error ()
+expect2 expected e1 e2 env pos = do
+    expect expected e1 env (Ident "left") pos
+    expect expected e2 env (Ident "right") pos
+
+expect2Int :: Exp -> Exp -> TCEnv -> BNFC'Position -> Either Error ()
+expect2Int = expect2 intTn
+
+expect2Bool :: Exp -> Exp -> TCEnv -> BNFC'Position -> Either Error ()
+expect2Bool = expect2 boolTn
