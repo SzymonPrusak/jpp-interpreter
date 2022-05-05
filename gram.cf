@@ -8,7 +8,7 @@ PTInt.      PrimType ::= "int" ;
 BTrue.      BoolLit ::= "true" ;
 BFalse.     BoolLit ::= "false" ;
 
-TMNone.     TypeMod ::= ;
+TMNone.     TypeMod ::= "";
 TMReadonly. TypeMod ::= "readonly" ;
 TNPrim.     TypeName ::= PrimType ;
 TNArr.      TypeName ::= ArrayType ;

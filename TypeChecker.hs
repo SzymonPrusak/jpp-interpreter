@@ -8,6 +8,7 @@ import qualified Data.Set as S
 import qualified Data.Map as M
 
 import Gram.Abs
+import TypeHelper
 
 import Debug.Trace (trace)
 
@@ -19,11 +20,33 @@ type RetTypeInfo = Maybe TypeName
 data TCEnv = TCEnv {
     funs :: FunMap,
     vars :: VarMap,
-    retType :: RetTypeInfo
+    retType :: RetTypeInfo,
+    inLoop :: Bool
     }
 
 emptyTcEnv :: TCEnv
-emptyTcEnv = TCEnv M.empty M.empty Nothing
+emptyTcEnv = TCEnv M.empty M.empty Nothing False
+
+addFuns :: [FunDef] -> TCEnvMod
+addFuns [] env = env
+addFuns (x:xs) env = env { funs = M.insert name fd $ funs $ addFuns xs env } where
+    fd@(FunDefin _ _ name _ _) = x
+
+clearVars :: TCEnvMod
+clearVars env = env { vars = M.empty }
+
+addVar :: TypeDef -> Ident -> TCEnvMod
+addVar td name env = env { vars = M.insert name td (vars env) }
+
+addVars :: [(TypeDef, Ident)] -> TCEnvMod
+addVars [] env = env
+addVars ((td, name):xs) env = addVar td name $ addVars xs env
+
+setRetType :: RetTypeInfo -> TCEnvMod
+setRetType rt env = env { retType = rt }
+
+enterLoop :: TCEnvMod
+enterLoop env = env { inLoop = True }
 
 
 data Error =
@@ -34,67 +57,64 @@ data Error =
     | TypeMissmatch Ident TypeName TypeName BNFC'Position
     | ExpectedArray Ident BNFC'Position
     | UndefFun Ident BNFC'Position
+    | InvalidFunArgCount Ident Int Int BNFC'Position
     | InvalidFunArgs Ident [TypeName] [TypeName] BNFC'Position
     | VoidFunResult Ident BNFC'Position
     | UnsuppAdd TypeName TypeName BNFC'Position
-    | UnexpectedErr
+    | NonEmptyReturn BNFC'Position
+    | EmptyReturn TypeName BNFC'Position
+    | NotInLoop BNFC'Position
     deriving (Show)
 
-type TCReader a = ReaderT TCEnv (ExceptT Error Identity) a 
+type TCReader a = ReaderT TCEnv (ExceptT Error Identity) a
+
+type TCResult a = Either Error a
+
+type TCEnvMod = TCEnv -> TCEnv
 
 
-intTn :: TypeName
-intTn = TNPrim Nothing $ PTInt Nothing
-stringTn :: TypeName
-stringTn = TNPrim Nothing $ PTString Nothing
-boolTn :: TypeName
-boolTn = TNPrim Nothing $ PTBool Nothing
-
-arrayTn :: TypeName -> TypeName
-arrayTn tn = TNArr Nothing $ TArrayType Nothing tn
-
-tupleTn :: [TypeName] -> TypeName
-tupleTn ts = TNTuple Nothing $ TTupleType Nothing $ map (TupleSType Nothing) ts
+fatalError m = error $ "tc fatal: " ++ m
 
 
-runTc :: [FunDef] -> Either Error ()
+runTc :: [FunDef] -> TCResult ()
 runTc fs = (runIdentity . runExceptT . runReaderT (runTcReader fs)) emptyTcEnv where
     runTcReader :: [FunDef] -> TCReader ()
-    runTcReader fs = processFuns fs $ tcFunDefs fs
+    runTcReader fs = case checkFunRedefs fs of
+        Right _ -> local (addFuns fs) $ tcFunDefs fs
+        Left err -> throwError err
 
 
-processFuns :: [FunDef] -> TCReader () -> TCReader ()
-processFuns fs fun = case checkFunRedefs fs of
-    Right _ -> local (addFuns fs) fun
-    Left err -> throwError err
-    where
-        checkFunRedefs :: [FunDef] -> Either Error (S.Set Ident)
-        checkFunRedefs [] = return S.empty
-        checkFunRedefs ((FunDefin pos _ name _ _):xs) = do
-            s <- checkFunRedefs xs
-            if S.member name s
-                then throwError $ FunRedef name pos
-                else return $ S.insert name s
-        addFuns :: [FunDef] -> TCEnv -> TCEnv
-        addFuns [] env = env
-        addFuns (x:xs) env = env { funs = M.insert name fd $ funs $ addFuns xs env } where
-            fd@(FunDefin _ _ name _ _) = x
+checkFunRedefs :: [FunDef] -> TCResult (S.Set Ident)
+checkFunRedefs [] = return S.empty
+checkFunRedefs ((FunDefin pos _ name _ _):xs) = do
+    s <- checkFunRedefs xs
+    if S.member name s
+        then throwError $ FunRedef name pos
+        else return $ S.insert name s
 
 
 tcFunDefs :: [FunDef] -> TCReader ()
 tcFunDefs = foldr ((>>) . tcFunDef) (return ())
 tcFunDef :: FunDef -> TCReader ()
-tcFunDef (FunDefin pos retTn name params (StmtBlck _ bs)) = do
-    trace (show name) $ pure ()
-    processFuns sfs runSubTc
+tcFunDef (FunDefin _ retTn name params b) = tcStmtBlock b (setParamVars params . addRetType retTn) where
+    setParamVars :: [FunParam] -> TCEnvMod
+    setParamVars params = addVars (map (\(FunPar _ td name) -> (td, name)) params) . clearVars
+    addRetType :: FunRet -> TCEnvMod
+    addRetType FRVoid {} = setRetType Nothing
+    addRetType (FRType _ tn) = setRetType $ Just tn
+
+
+tcStmtBlock :: StmtBlock -> TCEnvMod -> TCReader ()
+tcStmtBlock (StmtBlck _ bs) stmtMod = do
+    _ <- case checkFunRedefs sfs of
+        Right _ -> return ()
+        Left err -> throwError err
+    local (addFuns sfs) $ do
+        tcFunDefs sfs
+        local stmtMod $ tcStmts sss
     where
         sfs = getSubFunDefs bs
         sss = getSubStmts bs
-        runSubTc :: TCReader ()
-        runSubTc = do
-            tcFunDefs sfs
-            local (addParams params . addRetType retTn) $ tcStmts sss
-        
         getSubFunDefs :: [BlockStmt] -> [FunDef]
         getSubFunDefs ((BSFunDef _ fd):xs) = fd:getSubFunDefs xs
         getSubFunDefs (_:xs) = getSubFunDefs xs
@@ -103,61 +123,134 @@ tcFunDef (FunDefin pos retTn name params (StmtBlck _ bs)) = do
         getSubStmts ((BSStmt _ s):xs) = s:getSubStmts xs
         getSubStmts (_:xs) = getSubStmts xs
         getSubStmts [] = []
-        addParams :: [FunParam] -> TCEnv -> TCEnv
-        addParams [] env = env
-        addParams (x:xs) env = env { vars = M.insert name td $ vars $ addParams xs env } where
-            fp@(FunPar _ td name) = x
-        addRetType :: FunRet -> TCEnv -> TCEnv
-        addRetType FRVoid {} env = env { retType = Nothing }
-        addRetType (FRType _ tn) env = env { retType = Just tn }
 
 
 tcStmts :: [Stmt] -> TCReader ()
-
 tcStmts [] = return ()
-tcStmts (SEmpty {}:xs) = tcStmts xs
+tcStmts (x:xs) = do
+    m <- tcStmt x
+    local m $ tcStmts xs
 
-tcStmts ((SDecl pos td name):xs) = do
-    env <- ask
-    if M.member name (vars env)
-        then throwError $ VarRedef name pos
-        else local (addVar td name) $ tcStmts xs
+tcStmt :: Stmt -> TCReader TCEnvMod
 
-tcStmts ((SAssign pos (AVar _ name exp)):xs) = do
+tcStmt SEmpty {} = return id
+
+tcStmt (SDecl pos td name) = declareVar td name pos
+
+tcStmt (SAssign pos (AVar _ name exp)) = do
     env <- ask
     case checkAssign (getVarType name pos) env exp name pos of
-        Right _ -> tcStmts xs
+        Right _ -> return id
         Left err -> throwError err
 
-tcStmts ((SArrAssign pos (AArrAcc _ a@(ArrAcc _ name posExp) exp)):xs) = do
+tcStmt (SArrAssign pos (AArrAcc _ a@(ArrAcc _ name posExp) exp)) = do
     env <- ask
     case checkArrAssign env of
-        Right _ -> tcStmts xs
+        Right _ -> return id
         Left err -> throwError err
     where
         checkArrAssign env = do
-            indEt <- tcExp posExp env
-            expectType intTn indEt (Ident "index") pos
+            expectInt posExp env (Ident "index") pos
             checkAssign (getArrAccType a) env exp name pos
 
-tcStmts (_:xs) = tcStmts xs
+tcStmt (SDeclAssign pos (DeclASingl _ td@(TypeDefin _ _ tn) name) exp) = do
+    trace (show pos) $ pure ()
+    m <- declareVar td name pos
+    env <- ask
+    case expect tn exp env name pos of
+        Right _ -> return m
+        Left err -> throwError err
+tcStmt (SDeclAssign pos (DeclATuple _ tds) exp) = return id
 
-addVar :: TypeDef -> Ident -> TCEnv -> TCEnv
-addVar td name env = env { vars = M.insert name td (vars env) }
+tcStmt (SFunCall pos fc) = do
+    env <- ask
+    case tcFunCall env fc of
+        Right _ -> return id
+        Left err -> throwError err
 
-getVarType :: Ident -> BNFC'Position -> TCEnv -> Either Error (TypeName, TypeMod)
+tcStmt (SIf pos (IfBr _ exp ss)) = do
+    env <- ask
+    case expectBool exp env (Ident "if-condition") pos of
+        Right _ -> do
+            tcStmt ss
+            return id
+        Left err -> throwError err
+
+tcStmt (SIfEl pos (IfElBr _ exp tsb fs)) = do
+    env <- ask
+    case expectBool exp env (Ident "if-else-condition") pos of
+        Right _ -> do
+            tcStmtBlock tsb id
+            tcStmt fs
+            return id
+        Left err -> throwError err
+
+tcStmt (SLoopWhile pos (LWhile _ exp ss)) = do
+    env <- ask
+    case expectBool exp env (Ident "while-condition") pos of
+        Right _ -> do
+            local enterLoop $ tcStmt ss
+            return id
+        Left err -> throwError err
+
+tcStmt (SLoopFor pos (LFor _ (AVar _ itName eFrom) eTo ss)) = do
+    declareVar (readOnlyTd intTn) itName pos
+    env <- ask
+    case expect2Int eFrom eTo env pos of
+        Right _ -> do
+            local enterLoop $ tcStmt ss
+            return id
+        Left err -> throwError err
+
+tcStmt (SReturn pos) = do
+    env <- ask
+    case retType env of
+        Nothing -> return id
+        Just t -> throwError $ EmptyReturn t pos
+
+tcStmt (SReturnVal pos exp) = do
+    env <- ask
+    case retType env of
+        Nothing -> throwError $ NonEmptyReturn pos
+        Just t -> case expect t exp env (Ident "return-value") pos of
+            Right _ -> return id
+            Left err -> throwError err
+
+tcStmt (SContinue pos) = requireInLoop pos
+tcStmt (SBreak pos) = requireInLoop pos
+
+tcStmt (SSubBlock _ sb) = do
+    tcStmtBlock sb id
+    return id
+
+declareVar :: TypeDef -> Ident -> BNFC'Position -> TCReader TCEnvMod
+declareVar td name pos = do
+    env <- ask
+    if M.member name (vars env)
+        then throwError $ VarRedef name pos
+        else return $ addVar td name
+
+requireInLoop :: BNFC'Position -> TCReader TCEnvMod
+requireInLoop pos = do
+    env <- ask
+    if inLoop env
+        then return id
+        else throwError $ NotInLoop pos
+
+
+getVarType :: Ident -> BNFC'Position -> TCEnv -> TCResult (TypeName, TypeMod)
 getVarType name pos env = case M.lookup name (vars env) of
     Just (TypeDefin _ mod tn) -> return (tn, mod)
     Nothing -> throwError $ UndefVar name pos
 
-getArrAccType :: ArrayAccess -> TCEnv -> Either Error (TypeName, TypeMod)
+getArrAccType :: ArrayAccess -> TCEnv -> TCResult (TypeName, TypeMod)
 getArrAccType (ArrAcc pos name _) env = do
     (at, mod) <- getVarType name pos env
     case at of
         (TNArr _ (TArrayType _ st)) -> return (st, mod)
         _ -> throwError $ ExpectedArray name pos
 
-checkAssign :: (TCEnv -> Either Error (TypeName, TypeMod)) -> TCEnv -> Exp -> Ident -> BNFC'Position -> Either Error ()
+checkAssign :: (TCEnv -> TCResult (TypeName, TypeMod)) -> TCEnv -> Exp -> Ident -> BNFC'Position -> TCResult ()
 checkAssign fun env exp name pos = do
     (tn, mod) <- fun env
     et <- tcExp exp env
@@ -168,24 +261,7 @@ checkAssign fun env exp name pos = do
             TMReadonly {} -> throwError $ ReadOnlyAssign name pos
 
 
-compareTypes :: TypeName -> TypeName -> Bool
-compareTypes (TNPrim _ t1) (TNPrim _ t2) = comparePrimTypes t1 t2 where
-    comparePrimTypes :: PrimType -> PrimType -> Bool
-    comparePrimTypes PTBool {} PTBool {} = True
-    comparePrimTypes PTString {} PTString {} = True
-    comparePrimTypes PTInt {} PTInt {} = True
-    comparePrimTypes _ _ = False
-compareTypes (TNArr _ (TArrayType _ t1)) (TNArr _ (TArrayType _ t2)) = compareTypes t1 t2
-compareTypes (TNTuple _ (TTupleType _ t1)) (TNTuple _ (TTupleType _ t2)) = compareTupleSubTypes t1 t2 where
-    compareTupleSubTypes :: [TupleSubType] -> [TupleSubType] -> Bool
-    compareTupleSubTypes l1 l2
-        | length l1 /= length l2 = False
-        | otherwise = all doComparison $ zip t1 t2 where
-            doComparison (TupleSType _ t1, TupleSType _ t2) = compareTypes t1 t2
-compareTypes _ _ = False
-
-
-tcExp :: Exp -> TCEnv -> Either Error TypeName
+tcExp :: Exp -> TCEnv -> TCResult TypeName
 
 tcExp EInt {} env = return intTn
 tcExp EString {} env = return stringTn
@@ -196,56 +272,36 @@ tcExp (EVarRef pos name) env = do
     return tn
 
 tcExp (EArrInit pos (ArrInit _ tn cExp)) env = do
-    cet <- tcExp cExp env
-    expectType intTn cet (Ident "new[]") pos
+    expectInt cExp env (Ident "new[]") pos
     return $ arrayTn tn
 
 tcExp (EArrConstr pos (ArrConstr _ els)) env = do
     etn <- tcEls els
     return $ arrayTn etn
     where
-        tcEls :: [ConstrEl] -> Either Error TypeName
-        tcEls [] = error "empty array construction - should be handled by grammar"
+        tcEls :: [ConstrEl] -> TCResult TypeName
+        tcEls [] = fatalError "empty array construction - should be handled by grammar"
         tcEls [ConstrElem _ exp] = tcExp exp env
         tcEls ((ConstrElem elPos exp):xs) = do
             restTn <- tcEls xs
             expTn <- tcExp exp env
-            expectType restTn expTn (Ident "array construction") elPos
+            expectSame restTn expTn (Ident "array construction") elPos
             return expTn
 
 tcExp (ETupleConstr pos (TupleConstr _ els)) env = do
-    ts <- mapM (`tcConstrEl` env) els 
+    ts <- mapM (\(ConstrElem _ exp) -> tcExp exp env) els
     return $ tupleTn ts
 
 tcExp (EArrAcc pos a@(ArrAcc _ name indExp)) env = do
     (atn, _) <- getArrAccType a env
-    indExpT <- tcExp indExp env
-    expectType intTn indExpT (Ident "index") pos
+    expectInt indExp env (Ident "index") pos
     return atn
 
-tcExp (EFunCall pos (FuncCall _ name args)) env = do
-    (FunDefin _ rt _ params _) <- case M.lookup name (funs env) of
-        Nothing -> throwError $ UndefFun name pos
-        Just fd -> return fd
-    rtn <- case rt of
+tcExp (EFunCall pos fc@(FuncCall _ name _)) env = do
+    frt <- tcFunCall env fc
+    case frt of
         FRVoid {} -> throwError $ VoidFunResult name pos
         FRType _ tn -> return tn
-    a <- argTypes args
-    tcArgs (paramTypes params) a pos
-    return rtn
-    where
-        paramTypes :: [FunParam] -> [TypeName]
-        paramTypes p = map (\(FunPar _ (TypeDefin _ _ tn) _) -> tn) p
-        argTypes :: [FunArg] -> Either Error [TypeName]
-        argTypes a = mapM (\(FuncArg _ exp) -> tcExp exp env) a
-        tcArgs :: [TypeName] -> [TypeName] -> BNFC'Position -> Either Error ()
-        tcArgs params args pos
-            | length params /= length args = funArgsErr
-            | otherwise = if all (uncurry compareTypes) $ zip params args
-                then return ()
-                else funArgsErr
-                where
-                    funArgsErr = throwError $ InvalidFunArgs name params args pos
 
 tcExp (EMul pos e1 _ e2) env = do
     expect2Int e1 e2 env pos
@@ -254,7 +310,7 @@ tcExp (EMul pos e1 _ e2) env = do
 tcExp (EAdd pos e1 op e2) env = do
     t1 <- tcExp e1 env
     t2 <- tcExp e2 env
-    expectType t1 t2 (Ident "addition") pos
+    expectSame t1 t2 (Ident "addition") pos
     if isValidAdd t1 op
         then return t1
         else throwError $ UnsuppAdd t1 t2 pos
@@ -267,7 +323,7 @@ tcExp (EComp pos e1 op e2) env
     | isEqComp op = do
         t1 <- tcExp e1 env
         t2 <- tcExp e2 env
-        expectType t1 t2 (Ident "equality") pos
+        expectSame t1 t2 (Ident "equality") pos
         return boolTn
     | otherwise = do
         expect2Int e1 e2 env pos
@@ -286,26 +342,54 @@ tcExp (EOr pos e1 e2) env = do
     expect2Bool e1 e2 env pos
     return boolTn
 
-expectType :: TypeName -> TypeName -> Ident -> BNFC'Position -> Either Error ()
-expectType expected actual name pos = if compareTypes expected actual
+
+tcFunCall :: TCEnv -> FunCall -> TCResult FunRet
+tcFunCall env (FuncCall pos name args) = do
+    (FunDefin _ frt _ params _) <-  case M.lookup name (funs env) of
+        Nothing -> throwError $ UndefFun name pos
+        Just fd -> return fd
+    a <- tcArgs env args
+    tcFunArgs (paramTypes params) a
+    return frt
+    where
+        paramTypes :: [FunParam] -> [TypeName]
+        paramTypes = map (\(FunPar _ (TypeDefin _ _ tn) _) -> tn)
+        tcArgs :: TCEnv -> [FunArg] -> TCResult [TypeName]
+        tcArgs env = mapM (\(FuncArg _ exp) -> tcExp exp env)
+        tcFunArgs :: [TypeName] -> [TypeName] -> TCResult ()
+        tcFunArgs pts ats
+            | paramCount /= argCount = throwError $ InvalidFunArgCount name paramCount argCount pos
+            | otherwise = if all (uncurry compareTypes) $ zip pts ats
+                then return ()
+                else throwError $ InvalidFunArgs name pts ats pos
+            where
+                paramCount = length pts
+                argCount = length ats
+
+
+expectSame :: TypeName -> TypeName -> Ident -> BNFC'Position -> TCResult ()
+expectSame expected actual name pos = if compareTypes expected actual
     then return ()
     else throwError $ TypeMissmatch name expected actual pos
 
-expect :: TypeName -> Exp -> TCEnv -> Ident -> BNFC'Position -> Either Error ()
+expect :: TypeName -> Exp -> TCEnv -> Ident -> BNFC'Position -> TCResult ()
 expect expected exp env name pos = do
     tn <- tcExp exp env
-    expectType expected tn name pos
+    expectSame expected tn name pos
 
-expect2 :: TypeName -> Exp -> Exp -> TCEnv -> BNFC'Position -> Either Error ()
+expectBool :: Exp -> TCEnv -> Ident -> BNFC'Position -> TCResult ()
+expectBool = expect boolTn
+
+expectInt :: Exp -> TCEnv -> Ident -> BNFC'Position -> TCResult ()
+expectInt = expect intTn
+
+expect2 :: TypeName -> Exp -> Exp -> TCEnv -> BNFC'Position -> TCResult ()
 expect2 expected e1 e2 env pos = do
     expect expected e1 env (Ident "left") pos
     expect expected e2 env (Ident "right") pos
 
-expect2Int :: Exp -> Exp -> TCEnv -> BNFC'Position -> Either Error ()
+expect2Int :: Exp -> Exp -> TCEnv -> BNFC'Position -> TCResult ()
 expect2Int = expect2 intTn
 
-expect2Bool :: Exp -> Exp -> TCEnv -> BNFC'Position -> Either Error ()
+expect2Bool :: Exp -> Exp -> TCEnv -> BNFC'Position -> TCResult ()
 expect2Bool = expect2 boolTn
-
-tcConstrEl :: ConstrEl -> TCEnv -> Either Error TypeName
-tcConstrEl (ConstrElem _ exp) = tcExp exp

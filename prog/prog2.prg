@@ -3,7 +3,7 @@
 
 fun int main()
 {
-    if (1 && "aaaaa") ;
+    if (1 == 2 && "" == "aaaaa") ;
 }
 
 fun int main2()
@@ -24,9 +24,29 @@ fun int main2()
 
     (int, string, bool[])[] e;
     e = [~( 1, "", new bool[0] )~];
+
+    main2();
+    test([1,2,3]);
+
+    if (main() == 0)
+    {
+        fun void test()
+        {
+            int d;
+            while (true) ;
+        }
+    }
+
+    if (main2() == 1)
+    {
+
+    }
+    else
+        test([1]);
 }
 
 fun int test(readonly int[] a)
 {
-
+    int b = "aaa";
+    b = a[0];
 }
