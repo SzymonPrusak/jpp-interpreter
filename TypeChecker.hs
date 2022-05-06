@@ -16,8 +16,8 @@ uwagi:
 1. domyślny return
 
 todo:
-1. dekonstrukcja krotek
-2. reader w funkcjach które używają env
+1. ++++dekonstrukcja krotek
+2. ----reader w funkcjach które używają env
 -}
 
 
@@ -149,7 +149,7 @@ tcStmt (SAssign pos (AVar _ name exp)) = do
     env <- ask
     liftEither $ do
         (tn, tmod) <- getVarType name pos env
-        expect tn exp env name pos
+        expectTn tn exp env name pos
         checkAssignment tmod name pos
     return id
 
@@ -157,7 +157,7 @@ tcStmt (SArrAssign pos (AArrAcc _ a@(ArrAcc _ name posExp) exp)) = do
     env <- ask
     liftEither $ do
         (tn, tmod) <- getArrAccType a env
-        expect tn exp env name pos
+        expectTn tn exp env name pos
         checkAssignment tmod name pos
         expectInt posExp env (Ident "index") pos
     return id
@@ -206,7 +206,7 @@ tcStmt (SReturnVal pos exp) = do
     case retType env of
         Nothing -> throwError $ NonEmptyReturn pos
         Just t -> do
-            liftEither $ expect t exp env (Ident "return-value") pos
+            liftEither $ expectTn t exp env (Ident "return-value") pos
             return id
 
 tcStmt (SContinue pos) = requireInLoop pos
@@ -224,15 +224,10 @@ declareVar td name pos = do
         else return $ addVar td name
 
 tcDeclAssign :: DeclA -> Exp -> TCReader TCEnvMod
--- tcDeclAssign (DeclASingl pos td@(TypeDefin _ tn mod) name) exp = do
---     m <- declareVar td name pos
---     env <- ask
---     liftEither $ expect tn exp env name pos
---     return m
 tcDeclAssign decl exp = do
     let ttn = getDeclTn decl
     env <- ask
-    liftEither $ expect ttn exp env (Ident "decl-assign") $ hasPosition decl
+    liftEither $ expectTn ttn exp env (Ident "decl-assign") $ hasPosition decl
     declSubVar decl
     where
         getTupleTn :: [DeclA] -> [TypeName]
@@ -296,7 +291,7 @@ tcExp (EArrConstr pos (ArrConstr _ els)) env = do
         tcEls [ConstrElem _ exp] = tcExp exp env
         tcEls ((ConstrElem elPos exp):xs) = do
             restTn <- tcEls xs
-            expect restTn exp env (Ident "array construction") elPos
+            expectTn restTn exp env (Ident "array construction") elPos
             return restTn
 
 tcExp (ETupleConstr pos (TupleConstr _ els)) env = do
@@ -321,7 +316,7 @@ tcExp (EMul pos e1 _ e2) env = do
 tcExp (EAdd pos e1 op e2) env = do
     t1 <- tcExp e1 env
     t2 <- tcExp e2 env
-    expectSame t1 t2 (Ident "addition") pos
+    expectSameTn t1 t2 (Ident "addition") pos
     if isValidAdd t1 op
         then return t1
         else throwError $ UnsuppAdd t1 t2 pos
@@ -334,7 +329,7 @@ tcExp (EComp pos e1 op e2) env
     | isEqComp op = do
         t1 <- tcExp e1 env
         t2 <- tcExp e2 env
-        expectSame t1 t2 (Ident "equality") pos
+        expectSameTn t1 t2 (Ident "equality") pos
         return boolTn
     | otherwise = do
         expect2Int e1 e2 env pos
@@ -378,29 +373,29 @@ tcFunCall env (FuncCall pos name args) = do
                 argCount = length ats
 
 
-expectSame :: TypeName -> TypeName -> Ident -> BNFC'Position -> TCResult ()
-expectSame expected actual name pos = if compareTypes expected actual
+expectSameTn :: TypeName -> TypeName -> Ident -> BNFC'Position -> TCResult ()
+expectSameTn expected actual name pos = if compareTypes expected actual
     then return ()
     else throwError $ TypeMissmatch name expected actual pos
 
-expect :: TypeName -> Exp -> TCEnv -> Ident -> BNFC'Position -> TCResult ()
-expect expected exp env name pos = do
+expectTn :: TypeName -> Exp -> TCEnv -> Ident -> BNFC'Position -> TCResult ()
+expectTn expected exp env name pos = do
     tn <- tcExp exp env
-    expectSame expected tn name pos
+    expectSameTn expected tn name pos
 
 expectBool :: Exp -> TCEnv -> Ident -> BNFC'Position -> TCResult ()
-expectBool = expect boolTn
+expectBool = expectTn boolTn
 
 expectInt :: Exp -> TCEnv -> Ident -> BNFC'Position -> TCResult ()
-expectInt = expect intTn
+expectInt = expectTn intTn
 
-expect2 :: TypeName -> Exp -> Exp -> TCEnv -> BNFC'Position -> TCResult ()
-expect2 expected e1 e2 env pos = do
-    expect expected e1 env (Ident "left") pos
-    expect expected e2 env (Ident "right") pos
+expectTn2 :: TypeName -> Exp -> Exp -> TCEnv -> BNFC'Position -> TCResult ()
+expectTn2 expected e1 e2 env pos = do
+    expectTn expected e1 env (Ident "left") pos
+    expectTn expected e2 env (Ident "right") pos
 
 expect2Int :: Exp -> Exp -> TCEnv -> BNFC'Position -> TCResult ()
-expect2Int = expect2 intTn
+expect2Int = expectTn2 intTn
 
 expect2Bool :: Exp -> Exp -> TCEnv -> BNFC'Position -> TCResult ()
-expect2Bool = expect2 boolTn
+expect2Bool = expectTn2 boolTn
