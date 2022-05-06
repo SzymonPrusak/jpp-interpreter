@@ -41,7 +41,7 @@ terminator  BlockStmt "" ;
 
 ArrInit.    ArrayInit ::= "new" TypeName "[" Exp "]" ;
 ArrConstr.  ArrayConstruction ::= "[" [ConstrEl] "]" ;
-TupleConstr. TupleConstruction ::= "~(" [ConstrEl] ")~" ;
+TupleConstr. TupleConstruction ::= "~(" [ConstrEl] ")" ;
 ConstrElem. ConstrEl ::= Exp ;
 separator   nonempty ConstrEl "," ;
 
@@ -84,7 +84,7 @@ AVar.       VarAssign ::= Ident "=" Exp ;
 AArrAcc.    ArrAccAssign ::= ArrayAccess "=" Exp ;
 
 DeclASingl. DeclA ::= TypeDef Ident;
-DeclATuple. DeclA ::= "~(" [DeclA] ")~" ;
+DeclATuple. DeclA ::= "~(" [DeclA] ")" ;
 separator   nonempty DeclA "," ;
 
 FuncCall.   FunCall ::= Ident "(" [FunArg] ")" ;

@@ -1,7 +1,7 @@
 module TypeChecker where
 
-import Control.Monad (guard)
-import Control.Monad.Except (ExceptT, runExceptT, MonadError (throwError))
+import Control.Monad (guard, liftM2)
+import Control.Monad.Except (ExceptT, runExceptT, MonadError (throwError), liftEither)
 import Control.Monad.Identity (Identity (runIdentity))
 import Control.Monad.Reader (ReaderT (runReaderT), ask, local)
 import qualified Data.Set as S
@@ -12,7 +12,12 @@ import TypeHelper
 
 import Debug.Trace (trace)
 {-
+uwagi:
 1. domyślny return
+
+todo:
+1. dekonstrukcja krotek
+2. reader w funkcjach które używają env
 -}
 
 
@@ -84,9 +89,9 @@ fatalError m = error $ "tc fatal: " ++ m
 runTc :: [FunDef] -> TCResult ()
 runTc fs = (runIdentity . runExceptT . runReaderT (runTcReader fs)) emptyTcEnv where
     runTcReader :: [FunDef] -> TCReader ()
-    runTcReader fs = case checkFunRedefs fs of
-        Right _ -> local (addFuns fs) $ tcFunDefs fs
-        Left err -> throwError err
+    runTcReader fs = do
+        liftEither $ checkFunRedefs fs
+        local (addFuns fs) $ tcFunDefs fs
 
 
 checkFunRedefs :: [FunDef] -> TCResult (S.Set Ident)
@@ -111,9 +116,7 @@ tcFunDef (FunDefin _ retTn name params b) = tcStmtBlock b (setParamVars params .
 
 tcStmtBlock :: StmtBlock -> TCEnvMod -> TCReader ()
 tcStmtBlock (StmtBlck _ bs) stmtMod = do
-    _ <- case checkFunRedefs sfs of
-        Right _ -> return ()
-        Left err -> throwError err
+    liftEither $ checkFunRedefs sfs
     local (addFuns sfs) $ do
         tcFunDefs sfs
         local stmtMod $ tcStmts sss
@@ -144,72 +147,53 @@ tcStmt (SDecl pos td name) = declareVar td name pos
 
 tcStmt (SAssign pos (AVar _ name exp)) = do
     env <- ask
-    case do
+    liftEither $ do
         (tn, tmod) <- getVarType name pos env
         expect tn exp env name pos
         checkAssignment tmod name pos
-        of
-        Left err -> throwError err
-        Right _ -> return id
+    return id
 
 tcStmt (SArrAssign pos (AArrAcc _ a@(ArrAcc _ name posExp) exp)) = do
     env <- ask
-    case do
+    liftEither $ do
         (tn, tmod) <- getArrAccType a env
         expect tn exp env name pos
         checkAssignment tmod name pos
         expectInt posExp env (Ident "index") pos
-        of
-        Right _ -> return id
-        Left err -> throwError err
+    return id
 
-tcStmt (SDeclAssign pos (DeclASingl _ td@(TypeDefin _ tn _) name) exp) = do
-    m <- declareVar td name pos
-    env <- ask
-    case expect tn exp env name pos of
-        Right _ -> return m
-        Left err -> throwError err
-tcStmt (SDeclAssign pos (DeclATuple _ tds) exp) = return id
+tcStmt (SDeclAssign pos decl exp) = tcDeclAssign decl exp
 
 tcStmt (SFunCall pos fc) = do
     env <- ask
-    case tcFunCall env fc of
-        Right _ -> return id
-        Left err -> throwError err
+    liftEither $ tcFunCall env fc
+    return id
 
 tcStmt (SIf pos (IfBr _ exp ss)) = do
     env <- ask
-    case expectBool exp env (Ident "if-condition") pos of
-        Right _ -> do
-            tcStmt ss
-            return id
-        Left err -> throwError err
+    liftEither $ expectBool exp env (Ident "if-condition") pos
+    tcStmt ss
+    return id
 
 tcStmt (SIfEl pos (IfElBr _ exp tsb fs)) = do
     env <- ask
-    case expectBool exp env (Ident "if-else-condition") pos of
-        Right _ -> do
-            tcStmtBlock tsb id
-            tcStmt fs
-            return id
-        Left err -> throwError err
+    liftEither $ expectBool exp env (Ident "if-else-condition") pos
+    tcStmtBlock tsb id
+    tcStmt fs
+    return id
 
 tcStmt (SLoopWhile pos (LWhile _ exp ss)) = do
     env <- ask
-    case expectBool exp env (Ident "while-condition") pos of
-        Right _ -> do
-            local enterLoop $ tcStmt ss
-            return id
-        Left err -> throwError err
+    liftEither $ expectBool exp env (Ident "while-condition") pos
+    local enterLoop $ tcStmt ss
+    return id
 
 tcStmt (SLoopFor pos (LFor _ (AVar _ itName eFrom) eTo ss)) = do
     m <- declareVar (readOnlyTd intTn) itName pos
     env <- ask
-    case expect2Int eFrom eTo env pos of
-        Right _ -> do
-            local (m . enterLoop) $ tcStmt ss
-            return id
-        Left err -> throwError err
+    liftEither $ expect2Int eFrom eTo env pos
+    local (m . enterLoop) $ tcStmt ss
+    return id
 
 tcStmt (SReturn pos) = do
     env <- ask
@@ -221,9 +205,9 @@ tcStmt (SReturnVal pos exp) = do
     env <- ask
     case retType env of
         Nothing -> throwError $ NonEmptyReturn pos
-        Just t -> case expect t exp env (Ident "return-value") pos of
-            Right _ -> return id
-            Left err -> throwError err
+        Just t -> do
+            liftEither $ expect t exp env (Ident "return-value") pos
+            return id
 
 tcStmt (SContinue pos) = requireInLoop pos
 tcStmt (SBreak pos) = requireInLoop pos
@@ -238,6 +222,30 @@ declareVar td name pos = do
     if M.member name (vars env)
         then throwError $ VarRedef name pos
         else return $ addVar td name
+
+tcDeclAssign :: DeclA -> Exp -> TCReader TCEnvMod
+-- tcDeclAssign (DeclASingl pos td@(TypeDefin _ tn mod) name) exp = do
+--     m <- declareVar td name pos
+--     env <- ask
+--     liftEither $ expect tn exp env name pos
+--     return m
+tcDeclAssign decl exp = do
+    let ttn = getDeclTn decl
+    env <- ask
+    liftEither $ expect ttn exp env (Ident "decl-assign") $ hasPosition decl
+    declSubVar decl
+    where
+        getTupleTn :: [DeclA] -> [TypeName]
+        getTupleTn ds = map getDeclTn ds
+        getDeclTn :: DeclA -> TypeName
+        getDeclTn (DeclASingl _ (TypeDefin _ tn _) _) = tn 
+        getDeclTn (DeclATuple _ ds) = tupleTn $ getTupleTn ds
+        declSubVar :: DeclA -> TCReader TCEnvMod
+        declSubVar (DeclASingl pos td name) = declareVar td name pos
+        declSubVar (DeclATuple _ ds) = declSubVars ds
+        declSubVars :: [DeclA] -> TCReader TCEnvMod
+        declSubVars [] = return id
+        declSubVars (d:ds) = liftM2 (.) (declSubVar d) (declSubVars ds)
 
 requireInLoop :: BNFC'Position -> TCReader TCEnvMod
 requireInLoop pos = do
