@@ -23,7 +23,7 @@ fun int main2()
     d = 5 * 10 + 5 > 4 && false != true || "" == "aaa";
 
     (int, string, bool[])[] e;
-    e = [~( 1, "", new bool[0] )~];
+    e = [~( 1, "", new bool[0] )];
 
     main2();
     test([1,2,3]);

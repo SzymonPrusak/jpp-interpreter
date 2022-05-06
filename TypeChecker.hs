@@ -94,19 +94,20 @@ runTc fs = (runIdentity . runExceptT . runReaderT (runTcReader fs)) emptyTcEnv w
         local (addFuns fs) $ tcFunDefs fs
 
 
-checkFunRedefs :: [FunDef] -> TCResult (S.Set Ident)
-checkFunRedefs [] = return S.empty
-checkFunRedefs ((FunDefin pos _ name _ _):xs) = do
-    s <- checkFunRedefs xs
-    if S.member name s
-        then throwError $ FunRedef name pos
-        else return $ S.insert name s
+checkFunRedefs :: [FunDef] -> TCResult ()
+checkFunRedefs = checkFunRedefs S.empty where
+    checkFunRedefs :: S.Set Ident -> [FunDef] -> TCResult ()
+    checkFunRedefs s [] = return ()
+    checkFunRedefs s ((FunDefin pos _ name _ _):xs) = do
+        if S.member name s
+            then throwError $ FunRedef name pos
+            else checkFunRedefs (S.insert name s) xs
 
 
 tcFunDefs :: [FunDef] -> TCReader ()
 tcFunDefs = foldr ((>>) . tcFunDef) (return ())
 tcFunDef :: FunDef -> TCReader ()
-tcFunDef (FunDefin _ retTn name params b) = tcStmtBlock b (setParamVars params . addRetType retTn . exitLoop) where
+tcFunDef (FunDefin _ retTn name params b) = local (setParamVars params . addRetType retTn . exitLoop) $ tcStmtBlock b where
     setParamVars :: [FunParam] -> TCEnvMod
     setParamVars params = addVars (map (\(FunPar _ td name) -> (td, name)) params) . clearVars
     addRetType :: FunRet -> TCEnvMod
@@ -114,12 +115,12 @@ tcFunDef (FunDefin _ retTn name params b) = tcStmtBlock b (setParamVars params .
     addRetType (FRType _ tn) = setRetType $ Just tn
 
 
-tcStmtBlock :: StmtBlock -> TCEnvMod -> TCReader ()
-tcStmtBlock (StmtBlck _ bs) stmtMod = do
+tcStmtBlock :: StmtBlock -> TCReader ()
+tcStmtBlock (StmtBlck _ bs) = do
     liftEither $ checkFunRedefs sfs
     local (addFuns sfs) $ do
         tcFunDefs sfs
-        local stmtMod $ tcStmts sss
+        tcStmts sss
     where
         sfs = getSubFunDefs bs
         sss = getSubStmts bs
@@ -178,7 +179,7 @@ tcStmt (SIf pos (IfBr _ exp ss)) = do
 tcStmt (SIfEl pos (IfElBr _ exp tsb fs)) = do
     env <- ask
     liftEither $ expectBool exp env (Ident "if-else-condition") pos
-    tcStmtBlock tsb id
+    tcStmtBlock tsb
     tcStmt fs
     return id
 
@@ -213,7 +214,7 @@ tcStmt (SContinue pos) = requireInLoop pos
 tcStmt (SBreak pos) = requireInLoop pos
 
 tcStmt (SSubBlock _ sb) = do
-    tcStmtBlock sb id
+    tcStmtBlock sb
     return id
 
 declareVar :: TypeDef -> Ident -> BNFC'Position -> TCReader TCEnvMod
@@ -340,11 +341,11 @@ tcExp (EComp pos e1 op e2) env
         isEqComp CONeq {} = True
         isEqComp _ = False
 
-tcExp (EAnd pos e1 e2) env = do
-    expect2Bool e1 e2 env pos
-    return boolTn
+tcExp (EAnd pos e1 e2) env = tcBoolOp e1 e2 env pos
+tcExp (EOr pos e1 e2) env = tcBoolOp e1 e2 env pos
 
-tcExp (EOr pos e1 e2) env = do
+tcBoolOp :: Exp -> Exp -> TCEnv -> BNFC'Position -> TCResult TypeName
+tcBoolOp e1 e2 env pos =do
     expect2Bool e1 e2 env pos
     return boolTn
 

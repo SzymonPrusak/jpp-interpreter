@@ -19,7 +19,7 @@ fun void chuj( string readonly bbb, bool c)
 
 fun (int, bool) tuple()
 {
-    return ~( 1, true )~;
+    return ~( 1, true );
 }
 
 fun bool[] arr() {}
@@ -36,7 +36,7 @@ fun void stmt()
 
      string[] readonly d = new string[a];
 
-    (int, bool) e = ~( 1, true )~;
+    (int, bool) e = ~( 1, true );
     int[] f = [1, 2, 3];
 
      int readonly x = f[2];
@@ -45,7 +45,7 @@ fun void stmt()
 
 fun bool decon()
 {
-    ~(int a, string b, ~(bool[] a, int[] c)~)~ = ~( 1, "a", ~( [true, false], [1, 2, 4, 8] )~ )~;
+    ~(int a, string b, ~(bool[] a, int[] c)) = ~( 1, "a", ~( [true, false], [1, 2, 4, 8] ) );
     return true;
 }
 
