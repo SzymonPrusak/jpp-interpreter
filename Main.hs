@@ -1,13 +1,17 @@
 module Main where
     
 import Control.Monad.Except (catchError, liftEither)
+import Data.List (intercalate)
 import System.Environment (getArgs)
 
 import Gram.Abs
 import Gram.Par
 import Gram.Print
+import qualified Interpreter as IP
 import qualified TypeChecker as TC
-import Data.List (intercalate)
+
+import Debug (printCallMap)
+
 
 
 run :: String -> IO ()
@@ -15,8 +19,8 @@ run s = do
     p <- runParser s
     case p of
         Just (Program _ fs) -> case TC.runTc fs of
-            Right _ -> return ()
-                -- run interpreter
+            Right _ ->
+                putStr $ printCallMap $ IP.buildCallMap fs
             Left err -> printTcErr err
         Nothing -> return ()
 
