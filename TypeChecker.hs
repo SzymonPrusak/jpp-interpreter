@@ -32,8 +32,19 @@ data TCEnv = TCEnv {
     inLoop :: Bool
     }
 
-emptyTcEnv :: TCEnv
-emptyTcEnv = TCEnv M.empty M.empty Nothing False
+builtInFd :: String -> [(TypeName, String)] -> FunDef
+builtInFd name params = FunDefin Nothing (FRVoid Nothing) (Ident name) paramDefs (StmtBlck Nothing []) where
+    paramDefs = map (\(tn, pName) -> FunPar Nothing (readWriteTd tn) (Ident pName)) params
+printSFd :: FunDef
+printSFd = builtInFd "printS" [(stringTn, "s")]
+printBFd :: FunDef
+printBFd = builtInFd "printB" [(boolTn, "b")]
+printIFd :: FunDef
+printIFd = builtInFd "printI" [(intTn, "i")]
+
+newTcEnv :: TCEnv
+newTcEnv = addFuns [printSFd, printBFd, printIFd] emptyEnv where
+    emptyEnv = TCEnv M.empty M.empty Nothing False
 
 addFuns :: [FunDef] -> TCEnvMod
 addFuns [] env = env
@@ -87,7 +98,7 @@ fatalError m = error $ "tc fatal: " ++ m
 
 
 runTc :: [FunDef] -> TCResult ()
-runTc fs = (runIdentity . runExceptT . runReaderT (runTcReader fs)) emptyTcEnv where
+runTc fs = (runIdentity . runExceptT . runReaderT (runTcReader fs)) newTcEnv where
     runTcReader :: [FunDef] -> TCReader ()
     runTcReader fs = do
         liftEither $ checkFunRedefs fs

@@ -17,6 +17,8 @@ arrayTn tn = TNArr Nothing $ TArrayType Nothing tn
 tupleTn :: [TypeName] -> TypeName
 tupleTn tn = TNTuple Nothing $ TTupleType Nothing $ map (TupleSType Nothing) tn
 
+readWriteTd :: TypeName -> TypeDef
+readWriteTd tn = TypeDefin Nothing tn $ TMNone Nothing
 readOnlyTd :: TypeName -> TypeDef
 readOnlyTd tn = TypeDefin Nothing tn $ TMReadonly Nothing
 
