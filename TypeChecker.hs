@@ -71,20 +71,20 @@ exitLoop = modLoop False
 
 
 data Error =
-    FunRedef Ident BNFC'Position
-    | VarRedef Ident BNFC'Position
-    | UndefVar Ident BNFC'Position
-    | ReadOnlyAssign Ident BNFC'Position
-    | TypeMissmatch Ident TypeName TypeName BNFC'Position
-    | ExpectedArray Ident BNFC'Position
-    | UndefFun Ident BNFC'Position
-    | InvalidFunArgCount Ident Int Int BNFC'Position
-    | InvalidFunArgs Ident [TypeName] [TypeName] BNFC'Position
-    | VoidFunResult Ident BNFC'Position
-    | UnsuppAdd TypeName TypeName BNFC'Position
-    | NonEmptyReturn BNFC'Position
-    | EmptyReturn TypeName BNFC'Position
-    | NotInLoop BNFC'Position
+    ErrFunRedef Ident BNFC'Position
+    | ErrVarRedef Ident BNFC'Position
+    | ErrUndefVar Ident BNFC'Position
+    | ErrReadOnlyAssign Ident BNFC'Position
+    | ErrTypeMissmatch Ident TypeName TypeName BNFC'Position
+    | ErrExpectedArray Ident BNFC'Position
+    | ErrUndefFun Ident BNFC'Position
+    | ErrInvalidFunArgCount Ident Int Int BNFC'Position
+    | ErrInvalidFunArgs Ident [TypeName] [TypeName] BNFC'Position
+    | ErrVoidFunResult Ident BNFC'Position
+    | ErrUnsuppAdd TypeName TypeName BNFC'Position
+    | ErrNonEmptyReturn BNFC'Position
+    | ErrEmptyReturn TypeName BNFC'Position
+    | ErrNotInLoop BNFC'Position
     deriving (Show)
 
 type TCReader a = ReaderT TCEnv (ExceptT Error Identity) a
@@ -111,7 +111,7 @@ checkFunRedefs = checkFunRedefs S.empty where
     checkFunRedefs s [] = return ()
     checkFunRedefs s ((FunDefin pos _ name _ _):xs) = do
         if S.member name s
-            then throwError $ FunRedef name pos
+            then throwError $ ErrFunRedef name pos
             else checkFunRedefs (S.insert name s) xs
 
 
@@ -203,12 +203,12 @@ tcStmt (SReturn pos) = do
     env <- ask
     case retType env of
         Nothing -> return id
-        Just t -> throwError $ EmptyReturn t pos
+        Just t -> throwError $ ErrEmptyReturn t pos
 
 tcStmt (SReturnVal pos exp) = do
     env <- ask
     case retType env of
-        Nothing -> throwError $ NonEmptyReturn pos
+        Nothing -> throwError $ ErrNonEmptyReturn pos
         Just t -> do
             liftEither $ expectTn t exp env (Ident "return-value") pos
             return id
@@ -224,7 +224,7 @@ declareVar :: TypeDef -> Ident -> BNFC'Position -> TCReader TCEnvMod
 declareVar td name pos = do
     env <- ask
     if M.member name (vars env)
-        then throwError $ VarRedef name pos
+        then throwError $ ErrVarRedef name pos
         else return $ addVar td name
 
 tcDeclAssign :: DeclA -> Exp -> TCReader TCEnvMod
@@ -251,25 +251,25 @@ requireInLoop pos = do
     env <- ask
     if inLoop env
         then return id
-        else throwError $ NotInLoop pos
+        else throwError $ ErrNotInLoop pos
 
 checkAssignment :: TypeMod -> Ident -> BNFC'Position -> TCResult ()
 checkAssignment mod name pos = case mod of
     TMNone {} -> return ()
-    TMReadonly {} -> throwError $ ReadOnlyAssign name pos
+    TMReadonly {} -> throwError $ ErrReadOnlyAssign name pos
 
 
 getVarType :: Ident -> BNFC'Position -> TCEnv -> TCResult (TypeName, TypeMod)
 getVarType name pos env = case M.lookup name (vars env) of
     Just (TypeDefin _ tn mod) -> return (tn, mod)
-    Nothing -> throwError $ UndefVar name pos
+    Nothing -> throwError $ ErrUndefVar name pos
 
 getArrAccType :: ArrayAccess -> TCEnv -> TCResult (TypeName, TypeMod)
 getArrAccType (ArrAcc pos name _) env = do
     (at, mod) <- getVarType name pos env
     case at of
         (TNArr _ (TArrayType _ st)) -> return (st, mod)
-        _ -> throwError $ ExpectedArray name pos
+        _ -> throwError $ ErrExpectedArray name pos
 
 
 tcExp :: Exp -> TCEnv -> TCResult TypeName
@@ -310,7 +310,7 @@ tcExp (EArrAcc pos a@(ArrAcc _ name indExp)) env = do
 tcExp (EFunCall pos fc@(FuncCall _ name _)) env = do
     frt <- tcFunCall env fc
     case frt of
-        FRVoid {} -> throwError $ VoidFunResult name pos
+        FRVoid {} -> throwError $ ErrVoidFunResult name pos
         FRType _ tn -> return tn
 
 tcExp (EMul pos e1 _ e2) env = do
@@ -323,7 +323,7 @@ tcExp (EAdd pos e1 op e2) env = do
     expectSameTn t1 t2 (Ident "addition") pos
     if isValidAdd t1 op
         then return t1
-        else throwError $ UnsuppAdd t1 t2 pos
+        else throwError $ ErrUnsuppAdd t1 t2 pos
     where
         isValidAdd :: TypeName -> AddOp -> Bool
         isValidAdd tn AOPlus {} = compareTypes tn stringTn || compareTypes tn intTn
@@ -356,7 +356,7 @@ tcBoolOp e1 e2 env pos =do
 tcFunCall :: TCEnv -> FunCall -> TCResult FunRet
 tcFunCall env (FuncCall pos name args) = do
     (FunDefin _ frt _ params _) <- case M.lookup name (funs env) of
-        Nothing -> throwError $ UndefFun name pos
+        Nothing -> throwError $ ErrUndefFun name pos
         Just fd -> return fd
     a <- tcArgs env args
     tcFunArgs (paramTypes params) a
@@ -368,10 +368,10 @@ tcFunCall env (FuncCall pos name args) = do
         tcArgs env = mapM (\(FuncArg _ exp) -> tcExp exp env)
         tcFunArgs :: [TypeName] -> [TypeName] -> TCResult ()
         tcFunArgs pts ats
-            | paramCount /= argCount = throwError $ InvalidFunArgCount name paramCount argCount pos
+            | paramCount /= argCount = throwError $ ErrInvalidFunArgCount name paramCount argCount pos
             | otherwise = if all (uncurry compareTypes) $ zip pts ats
                 then return ()
-                else throwError $ InvalidFunArgs name pts ats pos
+                else throwError $ ErrInvalidFunArgs name pts ats pos
             where
                 paramCount = length pts
                 argCount = length ats
@@ -380,7 +380,7 @@ tcFunCall env (FuncCall pos name args) = do
 expectSameTn :: TypeName -> TypeName -> Ident -> BNFC'Position -> TCResult ()
 expectSameTn expected actual name pos = if compareTypes expected actual
     then return ()
-    else throwError $ TypeMissmatch name expected actual pos
+    else throwError $ ErrTypeMissmatch name expected actual pos
 
 expectTn :: TypeName -> Exp -> TCEnv -> Ident -> BNFC'Position -> TCResult ()
 expectTn expected exp env name pos = do
