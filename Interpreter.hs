@@ -135,8 +135,10 @@ resolveCall fn = do
             fm <- M.lookup [] m
             lookupFun fn fm []
         resolveCall fn ns@(i:is) m = case M.lookup ns m of
-            Nothing -> resolveCall fn is m
-            Just fm -> lookupFun fn fm (i:is)
+            Nothing -> fallback
+            Just fm -> maybe fallback return $ lookupFun fn fm (i:is)
+            where
+                fallback = resolveCall fn is m
         lookupFun :: FunName -> FunMap -> BlockQName -> Maybe (FunDef, BlockQName)
         lookupFun fn fm ns = (\d -> (d, ns)) <$> M.lookup fn fm
 
