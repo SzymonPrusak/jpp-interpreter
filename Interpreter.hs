@@ -1,9 +1,15 @@
 module Interpreter where
 
 import qualified Data.Map as M
+import Data.Maybe (fromMaybe)
+import Control.Monad.Except (ExceptT, MonadError (throwError), runExceptT)
+import Control.Monad.Identity (Identity (runIdentity))
+import Control.Monad.Reader (ReaderT (runReaderT), MonadReader (ask))
+import Control.Monad.State (StateT, MonadState (get, put), evalStateT)
 
 import Common
 import Gram.Abs
+import Gram.Print (printTree)
 
 
 
@@ -50,14 +56,6 @@ buildCallMap fds = processLocalFuns fds [] M.empty where
                 addSingleBlock :: StmtBlock -> CallMap
                 addSingleBlock sb = buildCallMapB sb (getSubBlockName 0) $ getRestCallMap 1
 
-resolveCall :: FunName -> BlockQName -> CallMap -> Maybe FunDef
-resolveCall fn [] m = do
-    fm <- M.lookup [] m
-    M.lookup fn fm
-resolveCall fn (i:is) m = case M.lookup (i:is) m of
-    Nothing -> resolveCall fn is m
-    Just fm -> M.lookup fn fm
-
 
 type VarAddress = Int
 data VarValue =
@@ -70,8 +68,15 @@ type VarStack = M.Map VarAddress VarValue
 
 data IPGlobalEnv = IPGEnv {
     callMap :: CallMap,
-    stack :: VarStack
+    stack :: VarStack,
+    nextAddress :: Int
     }
+
+type IPGEnvMod = IPGlobalEnv -> IPGlobalEnv
+
+newGlobalEnv :: [FunDef] -> IPGlobalEnv
+newGlobalEnv fds = IPGEnv { callMap = buildCallMap fds, stack = M.empty, nextAddress = 0 }
+
 
 type VarName = Ident
 type VarMap = M.Map VarName VarAddress
@@ -81,4 +86,60 @@ data IPLocalEnv = IPLEnv {
     varMap :: VarMap
     }
 
--- runInterpreter :: [FunDef]
+newLocalEnv :: IPLocalEnv
+newLocalEnv = IPLEnv { blockName = [], varMap = M.empty }
+
+
+data RuntimeException =
+    EntryPointNotFound
+    deriving (Show)
+
+type IPResult a = Either RuntimeException a
+type Interpreter a = StateT IPGlobalEnv (ReaderT IPLocalEnv (ExceptT RuntimeException Identity)) a
+
+
+fatalError m = error $ "interpreter fatal: " ++ m
+
+
+runInterpreter :: [FunDef] -> IPResult ()
+runInterpreter fds = (runIdentity . runExceptT . (`runReaderT` newLocalEnv) . (`evalStateT` newGlobalEnv fds)) runInterpreter  where
+    runInterpreter :: Interpreter ()
+    runInterpreter = do
+        mmain <- resolveCall (Ident "main")
+        main <- maybe (throwError EntryPointNotFound) return mmain
+        callFunDef main []
+        return ()
+
+
+resolveCall :: FunName -> Interpreter (Maybe FunDef)
+resolveCall fn = do
+    genv <- get
+    lenv <- ask
+    return $ resolveCall fn (blockName lenv) (callMap genv)
+    where
+        resolveCall :: FunName -> BlockQName -> CallMap -> Maybe FunDef
+        resolveCall fn [] m = do
+            fm <- M.lookup [] m
+            M.lookup fn fm
+        resolveCall fn (i:is) m = case M.lookup (i:is) m of
+            Nothing -> resolveCall fn is m
+            Just fm -> M.lookup fn fm
+
+callFunction :: FunName -> [VarValue] -> Interpreter (Maybe VarValue)
+callFunction fn args = do
+    mfun <- resolveCall fn
+    case mfun of
+        Nothing -> fatalError $ "function " ++ printTree fn ++ " not found - should be handled by TC"
+        Just fd -> callFunDef fd args
+
+callFunDef :: FunDef -> [VarValue] -> Interpreter (Maybe VarValue)
+callFunDef fd args = do
+    return Nothing
+
+
+allocVar :: Interpreter VarAddress
+allocVar = do
+    genv <- get
+    let addr = nextAddress genv
+    put genv { nextAddress = addr + 1 }
+    return addr

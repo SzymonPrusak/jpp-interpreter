@@ -11,6 +11,7 @@ import qualified Interpreter as IP
 import qualified TypeChecker as TC
 
 import Debug (printCallMap)
+import Interpreter (IPResult)
 
 
 
@@ -18,9 +19,9 @@ run :: String -> IO ()
 run s = do
     p <- runParser s
     case p of
-        Just (Program _ fs) -> case TC.runTc fs of
+        Just (Program _ fds) -> case TC.runTc fds of
             Right _ ->
-                putStr $ printCallMap $ IP.buildCallMap fs
+                runInterpreter fds
             Left err -> printTcErr err
         Nothing -> return ()
 
@@ -30,6 +31,11 @@ runParser s = case pProg $ myLexer s of
         putStrLn $ "Parser error: " ++ err
         return Nothing
     Right prog -> return $ Just prog
+
+runInterpreter :: [FunDef] -> IO ()
+runInterpreter fds = case IP.runInterpreter fds of
+    Right _ -> return ()
+    Left err -> putStrLn $ "Runtime exception: " ++ show err
 
 
 printTcErr :: TC.Error -> IO ()
