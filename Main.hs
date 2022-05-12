@@ -1,6 +1,6 @@
 module Main where
     
-import Control.Monad.Except (catchError, liftEither)
+import Control.Monad.Except (catchError, liftEither, MonadIO (liftIO))
 import Data.List (intercalate)
 import System.Environment (getArgs)
 
@@ -33,9 +33,11 @@ runParser s = case pProg $ myLexer s of
     Right prog -> return $ Just prog
 
 runInterpreter :: [FunDef] -> IO ()
-runInterpreter fds = case IP.runInterpreter fds of
-    Right _ -> return ()
-    Left err -> putStrLn $ "Runtime exception: " ++ show err
+runInterpreter fds = do
+    res <- liftIO $ IP.runInterpreter fds
+    case res of
+        Right _ -> return ()
+        Left err -> putStrLn $ "Runtime exception: " ++ show err
 
 
 printTcErr :: TC.Error -> IO ()
@@ -49,7 +51,7 @@ printTcErr e = putStrLn $ "Type checker error: " ++ getErrMsg e where
         TC.ErrTypeMissmatch name exp act pos -> "Type missmatch for " ++ quote name ++ " - expected " ++ printTree exp ++ ", but got " ++ printTree act ++ getPosMsg pos
         TC.ErrExpectedArray name pos -> "Expected array variable: " ++ quote name ++ getPosMsg pos
         TC.ErrUndefFun name pos -> "Undefined function " ++ quote name ++ getPosMsg pos
-        TC.ErrInvalidFunArgCount name expC actC pos -> "Invalid argument count for function call - expected " ++ show expC ++ ", but got" ++ show actC ++ getPosMsg pos
+        TC.ErrInvalidFunArgCount name expC actC pos -> "Invalid argument count for function " ++ quote name ++ " - expected " ++ show expC ++ ", but got " ++ show actC ++ getPosMsg pos
         TC.ErrInvalidFunArgs name expA actA pos -> "Invalid arguments for function " ++ quote name ++ " - expected <" ++ printTns expA ++ ">, but got <" ++ printTns actA ++ ">" ++ getPosMsg pos
         TC.ErrVoidFunResult name pos -> "Attempted to get result of void function " ++ quote name ++ getPosMsg pos
         TC.ErrUnsuppAdd t1 t2 pos -> "Unsupported add/sub operator usage on " ++ printTree t1 ++ " and " ++ printTree t2 ++ getPosMsg pos

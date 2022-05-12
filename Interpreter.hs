@@ -1,15 +1,18 @@
 module Interpreter where
 
+import Data.Char (toLower)
 import qualified Data.Map as M
 import Data.Maybe (fromMaybe)
-import Control.Monad.Except (ExceptT, MonadError (throwError), runExceptT)
-import Control.Monad.Identity (Identity (runIdentity))
+import Control.Monad.Except (ExceptT, MonadError (throwError), runExceptT, MonadIO (liftIO))
+import Control.Monad.Identity (IdentityT (runIdentityT))
 import Control.Monad.Reader (ReaderT (runReaderT), MonadReader (ask, local))
 import Control.Monad.State (StateT, MonadState (get, put), evalStateT)
 
 import Common
 import Gram.Abs
 import Gram.Print (printTree)
+
+import Debug.Trace (trace)
 
 
 
@@ -140,17 +143,37 @@ data RuntimeException =
     deriving (Show)
 
 type IPResult a = Either RuntimeException a
-type Interpreter a = StateT IPGlobalEnv (ReaderT IPLocalEnv (ExceptT RuntimeException Identity)) a
+type Interpreter a = StateT IPGlobalEnv (ReaderT IPLocalEnv (ExceptT RuntimeException (IdentityT IO))) a
 
 
-runInterpreter :: [FunDef] -> IPResult ()
-runInterpreter fds = (runIdentity . runExceptT . (`runReaderT` newLocalEnv) . (`evalStateT` newGlobalEnv fds)) runInterpreter  where
+runInterpreter :: [FunDef] -> IO (IPResult ())
+runInterpreter fds = (runIdentityT . runExceptT . (`runReaderT` newLocalEnv) . (`evalStateT` newGlobalEnv fds)) runInterpreter  where
     runInterpreter :: Interpreter ()
     runInterpreter = do
         mmain <- resolveCall (Ident "main")
-        (main, ns) <- maybe (throwError ExcEntryPointNotFound) return mmain
-        callFunDef main ns []
+        (main@(FunDefin _ _ _ args _), ns) <- maybe (throwError ExcEntryPointNotFound) return mmain
+        callFunDef main ns $ defaultMainArgs args
         return ()
+        where
+            defaultMainArgs :: [FunParam] -> [VarValue]
+            defaultMainArgs args = map (\(FunPar _ (TypeDefin _ tn _) _) -> defaultValue tn) args
+
+
+funPrintS :: [VarValue] -> Bool -> Interpreter (Maybe VarValue)
+funPrintS [VString s] endl = liftIO $ getPrintFun endl s >> return Nothing
+funPrintS _ _ = fatalError "invalid printS call - should be handled by TC"
+
+funPrintI :: [VarValue] -> Bool -> Interpreter (Maybe VarValue)
+funPrintI [VInt i] endl = liftIO $ getPrintFun endl (show i)>> return Nothing
+funPrintI _ _ = fatalError "invalid printI call - should be handled by TC"
+
+funPrintB :: [VarValue] -> Bool -> Interpreter (Maybe VarValue)
+funPrintB [VBool b] endl = liftIO $ getPrintFun endl (map toLower $ show b) >> return Nothing where
+    printFun = getPrintFun endl
+funPrintB _ _ = fatalError "invalid printS call - should be handled by TC"
+
+getPrintFun :: Bool -> (String -> IO())
+getPrintFun endl = if endl then putStrLn else putStr
 
 
 resolveCall :: FunName -> Interpreter (Maybe (FunDef, BlockQName))
@@ -176,9 +199,12 @@ callFunction fn@(Ident s) args = do
     mfun <- resolveCall fn
     case mfun of
         Nothing -> case s of
-            "printS" -> return Nothing 
-            "printI" -> return Nothing
-            "printB" -> return Nothing
+            "printS" -> funPrintS args False
+            "printLnS" -> funPrintS args True
+            "printI" -> funPrintI args False
+            "printLnI" -> funPrintI args True
+            "printB" -> funPrintB args False
+            "printLnB" -> funPrintB args True
             _ -> fatalError $ "function " ++ printTree fn ++ " not found - should be handled by TC"
         Just (fd, ns) -> callFunDef fd ns args
 

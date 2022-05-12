@@ -41,9 +41,15 @@ printBFd :: FunDef
 printBFd = builtInFd "printB" [(boolTn, "b")]
 printIFd :: FunDef
 printIFd = builtInFd "printI" [(intTn, "i")]
+printSLnFd :: FunDef
+printSLnFd = builtInFd "printLnS" [(stringTn, "s")]
+printBLnFd :: FunDef
+printBLnFd = builtInFd "printLnB" [(boolTn, "b")]
+printILnFd :: FunDef
+printILnFd = builtInFd "printLnI" [(intTn, "i")]
 
 newTcEnv :: TCEnv
-newTcEnv = addFuns [printSFd, printBFd, printIFd] emptyEnv where
+newTcEnv = addFuns [printSFd, printBFd, printIFd, printSLnFd, printBLnFd, printILnFd] emptyEnv where
     emptyEnv = TCEnv M.empty M.empty Nothing False
 
 addFuns :: [FunDef] -> TCEnvMod
