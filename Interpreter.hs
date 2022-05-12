@@ -134,8 +134,9 @@ nextSubBlock env = env { nextSubBlockIndex = nextSubBlockIndex env + 1 }
 
 
 data RuntimeException =
-    EntryPointNotFound
-    | VarNotInitialized VarName BlockQName
+    ExcEntryPointNotFound
+    | ExcVarNotInitialized VarName BNFC'Position
+    | ExcDivideByZero BNFC'Position
     deriving (Show)
 
 type IPResult a = Either RuntimeException a
@@ -147,7 +148,7 @@ runInterpreter fds = (runIdentity . runExceptT . (`runReaderT` newLocalEnv) . (`
     runInterpreter :: Interpreter ()
     runInterpreter = do
         mmain <- resolveCall (Ident "main")
-        (main, ns) <- maybe (throwError EntryPointNotFound) return mmain
+        (main, ns) <- maybe (throwError ExcEntryPointNotFound) return mmain
         callFunDef main ns []
         return ()
 
@@ -171,20 +172,27 @@ resolveCall fn = do
         lookupFun fn fm ns = (\d -> (d, ns)) <$> M.lookup fn fm
 
 callFunction :: FunName -> [VarValue] -> Interpreter (Maybe VarValue)
-callFunction fn args = do
+callFunction fn@(Ident s) args = do
     mfun <- resolveCall fn
     case mfun of
-        Nothing -> fatalError $ "function " ++ printTree fn ++ " not found - should be handled by TC"
+        Nothing -> case s of
+            "printS" -> return Nothing 
+            "printI" -> return Nothing
+            "printB" -> return Nothing
+            _ -> fatalError $ "function " ++ printTree fn ++ " not found - should be handled by TC"
         Just (fd, ns) -> callFunDef fd ns args
 
 callFunDef :: FunDef -> BlockQName -> [VarValue] -> Interpreter (Maybe VarValue)
 callFunDef (FunDefin _ fr fn params sb) ns args = do
     lenv1 <- setArguments params args
-    let lenv2 = setBlock (fn:ns) lenv2
+    let lenv2 = setBlock (fn:ns) lenv1
     rv <- local (const lenv2) $ execBlock sb
     case fr of
         FRVoid {} -> return Nothing
-        FRType _ tn -> return $ Just $ fromMaybe (defaultValue tn) rv
+        FRType _ tn -> case rv of
+            BResVoid -> return $ Just $ defaultValue tn
+            BResValue v -> return $ Just v
+            _ -> fatalError "invalid block evaluation result for function call - should be handled by TC"
     where
         setArguments :: [FunParam] -> [VarValue] -> Interpreter IPLocalEnv
         setArguments ((FunPar _ _ vn):ps) (a:as) = do
@@ -206,38 +214,85 @@ allocVar = do
     put genv { nextAddress = addr + 1 }
     return addr
 
+getVarAddr :: VarName -> Interpreter VarAddress
+getVarAddr name = do
+    lenv <- ask
+    let addr = sure (M.lookup name $ varMap lenv) "undefined variable - should be handled by TC"
+    return addr
+
 setVar :: VarAddress -> VarValue -> Interpreter ()
 setVar addr val = do
     genv <- get
     let nstack = M.insert addr val $ stack genv
     put genv { stack = nstack }
 
-readVar :: VarName -> Interpreter VarValue
-readVar name = do
+readVar :: VarName -> BNFC'Position -> Interpreter VarValue
+readVar name pos = do
+    addr <- getVarAddr name
     genv <- get
-    lenv <- ask
-    let addr = sure (M.lookup name $ varMap lenv) "undefined variable - should be handled by TC"
-    maybe (throwError $ VarNotInitialized name $ blockName lenv) return $ M.lookup addr $ stack genv
+    maybe (throwError $ ExcVarNotInitialized name pos) return $ M.lookup addr $ stack genv
 
 
-execBlock :: StmtBlock -> Interpreter (Maybe VarValue)
+data BlockResult =
+    BResVoid
+    | BResValue VarValue
+    | BResBreak
+    | BResContinue
+
+execBlock :: StmtBlock -> Interpreter BlockResult
 execBlock (StmtBlck _ bs) = execBlock $ getSubStmts bs where
-    execBlock :: [Stmt] -> Interpreter (Maybe VarValue)
-    execBlock [] = return Nothing
+    execBlock :: [Stmt] -> Interpreter BlockResult
+    execBlock [] = return BResVoid
     execBlock (s:ss) = do
         r <- execStmt s
         case r of
-            Left v -> return $ Just v
-            Right m -> local m $ execBlock ss
+            SResSkip br -> return br
+            SResCont m -> local m $ execBlock ss
 
 
-type StmtResult = Either VarValue IPLEnvMod
+data StmtResult =
+    SResSkip BlockResult
+    | SResCont IPLEnvMod
 
 execStmt :: Stmt -> Interpreter StmtResult
 
-execStmt (SEmpty _) = return $ Right id
+execStmt (SEmpty _) = return $ SResCont id
 
-execStmt (SDecl _ _ name) = Right . bindVar name <$> allocVar
+execStmt (SDecl _ _ name) = SResCont . bindVar name <$> allocVar
+
+execStmt (SAssign _ (AVar _ name exp)) = do
+    addr <- getVarAddr name
+    val <- evalExp exp
+    setVar addr val
+    return $ SResCont id
+
+execStmt (SArrAssign _ _) = undefined
+
+execStmt (SDeclAssign _ _ _) = undefined
+
+execStmt (SFunCall _ fc) = do
+    evalFunCall fc
+    return $ SResCont id
+
+execStmt (SIf _ (IfBr _ cond tsb)) = undefined
+
+execStmt (SIfEl _ (IfElBr _ cond tsb fs)) = undefined
+
+execStmt (SLoopWhile _ (LWhile _ cond s)) = undefined
+
+execStmt (SLoopFor _ (LFor _ avar cond s)) = undefined
+
+execStmt (SReturn _) = return $ SResSkip BResVoid
+
+execStmt (SReturnVal _ exp) = do
+    val <- evalExp exp
+    return $ SResSkip $ BResValue val
+
+execStmt (SContinue _) = return $ SResSkip BResContinue
+
+execStmt (SBreak _) = return $ SResSkip BResBreak
+
+execStmt (SSubBlock _ sb) = undefined
 
 
 evalExp :: Exp -> Interpreter VarValue
@@ -252,7 +307,7 @@ evalExp (EBool _ b) = case b of
     (BTrue _) -> return $ VBool True
     (BFalse _) -> return $ VBool False
 
-evalExp (EVarRef _ name) = readVar name
+evalExp (EVarRef pos name) = readVar name pos
 
 evalExp (EArrInit _ (ArrInit _ tn cExp)) = do
     cInt <- evalInt cExp
@@ -263,27 +318,30 @@ evalExp (EArrInit _ (ArrInit _ tn cExp)) = do
 evalExp (EArrConstr _ (ArrConstr _ els)) = evalConstr els VArray
 evalExp (ETupleConstr _ (TupleConstr _ els)) = evalConstr els VTuple
 
-evalExp (EArrAcc _ (ArrAcc _ name iExp)) = do
-    var <- readVar name
+evalExp (EArrAcc pos (ArrAcc _ name iExp)) = do
+    var <- readVar name pos
     let els = sureTuplArr var
     iInt <- evalInt iExp
     return $ els !! iInt
 
-evalExp (EFunCall _ (FuncCall _ name args)) = do
-    eArgs <- mapM (\(FuncArg _ exp) -> evalExp exp) args
-    resM <- callFunction name eArgs
+evalExp (EFunCall _ fc) = do
+    resM <- evalFunCall fc
     let res = sure resM "function did not return any value - should be handled by TC"
     return res
 
-evalExp (EMul _ e1 op e2) = do
+evalExp (EMul pos e1 op e2) = do
     v1 <- evalInt e1
     v2 <- evalInt e2
-    return $ VInt $ getOp op v1 v2
+    case calc v1 v2 op of
+        Nothing -> do
+            lenv <- ask
+            throwError $ ExcDivideByZero pos
+        Just v -> return $ VInt v
     where
-        getOp :: MulOp -> (Int -> Int -> Int)
-        getOp MOMul {} = (*)
-        getOp MODiv {} = div
-        getOp MOMod {} = mod
+        calc :: Int -> Int -> MulOp -> Maybe Int
+        calc v1 v2 MOMul {} = Just $ v1 * v2
+        calc v1 v2 MODiv {} = if v2 == 0 then Nothing else Just $ v1 `div` v2
+        calc v1 v2 MOMod {} = if v2 == 0 then Nothing else Just $ v1 `mod` v2
 
 evalExp (EAdd _ e1 op e2) = do
     v1 <- evalExp e1
@@ -330,6 +388,11 @@ evalConstr :: [ConstrEl] -> ([VarValue] -> VarValue) -> Interpreter VarValue
 evalConstr els ctor = do
     m <- mapM (\(ConstrElem _ elExp) -> evalExp elExp) els
     return $ ctor m
+
+evalFunCall :: FunCall -> Interpreter (Maybe VarValue)
+evalFunCall (FuncCall _ name args) = do
+    eArgs <- mapM (\(FuncArg _ exp) -> evalExp exp) args
+    callFunction name eArgs
 
 evalBoolOp :: Exp -> Exp -> (Bool -> Bool -> Bool) -> Interpreter VarValue
 evalBoolOp e1 e2 op = do
