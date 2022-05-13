@@ -130,11 +130,17 @@ setBlock ns env = env { blockName = ns, nextSubBlockIndex = 0 }
 enterBlock :: Ident -> IPLEnvMod
 enterBlock n env = setBlock (n:blockName env) env
 
+enterNextBlock :: IPLEnvMod
+enterNextBlock env = enterBlock (Ident $ show $ nextSubBlockIndex env) env
+
 bindVar :: VarName -> VarAddress -> IPLEnvMod
 bindVar vn addr env = env { varMap = M.insert vn addr $ varMap env }
 
-nextSubBlock :: IPLEnvMod
-nextSubBlock env = env { nextSubBlockIndex = nextSubBlockIndex env + 1 }
+clearVars :: IPLEnvMod
+clearVars env = env { varMap = M.empty }
+
+incNextSubBlock :: IPLEnvMod
+incNextSubBlock env = env { nextSubBlockIndex = nextSubBlockIndex env + 1 }
 
 
 data RuntimeException =
@@ -211,15 +217,16 @@ callFunction fn@(Ident s) args = do
 
 callFunDef :: FunDef -> BlockQName -> [VarValue] -> Interpreter (Maybe VarValue)
 callFunDef (FunDefin _ fr fn params sb) ns args = do
-    lenv1 <- setArguments params args
-    let lenv2 = setBlock (fn:ns) lenv1
-    rv <- local (const lenv2) $ execBlock sb
-    case fr of
-        FRVoid {} -> return Nothing
-        FRType _ tn -> case rv of
-            BResVoid -> return $ Just $ defaultValue tn
-            BResValue v -> return $ Just v
-            _ -> fatalError "invalid block evaluation result for function call - should be handled by TC"
+    local clearVars $ do
+        lenv1 <- setArguments params args
+        let lenv2 = setBlock (fn:ns) lenv1
+        rv <- local (const lenv2) $ execBlock sb
+        case fr of
+            FRVoid {} -> return Nothing
+            FRType _ tn -> case rv of
+                Nothing -> return $ Just $ defaultValue tn
+                Just (BResValue v) -> return $ Just v
+                _ -> fatalError "invalid block evaluation result for function call - should be handled by TC"
     where
         setArguments :: [FunParam] -> [VarValue] -> Interpreter IPLocalEnv
         setArguments ((FunPar _ _ vn):ps) (a:as) = do
@@ -256,6 +263,10 @@ setVar addr val = do
 readVar :: VarName -> BNFC'Position -> Interpreter VarValue
 readVar name pos = do
     addr <- getVarAddr name
+    readVarA addr name pos
+
+readVarA :: VarAddress -> VarName -> BNFC'Position -> Interpreter VarValue
+readVarA addr name pos = do
     genv <- get
     maybe (throwError $ ExcVarNotInitialized name pos) return $ M.lookup addr $ stack genv
 
@@ -266,14 +277,14 @@ data BlockResult =
     | BResBreak
     | BResContinue
 
-execBlock :: StmtBlock -> Interpreter BlockResult
+execBlock :: StmtBlock -> Interpreter (Maybe BlockResult)
 execBlock (StmtBlck _ bs) = execBlock $ getSubStmts bs where
-    execBlock :: [Stmt] -> Interpreter BlockResult
-    execBlock [] = return BResVoid
+    execBlock :: [Stmt] -> Interpreter (Maybe BlockResult)
+    execBlock [] = return Nothing
     execBlock (s:ss) = do
         r <- execStmt s
         case r of
-            SResSkip br -> return br
+            SResSkip br -> return $ Just br
             SResCont m -> local m $ execBlock ss
 
 
@@ -293,7 +304,17 @@ execStmt (SAssign _ (AVar _ name exp)) = do
     setVar addr val
     return $ SResCont id
 
-execStmt (SArrAssign _ _) = undefined
+execStmt (SArrAssign pos (AArrAcc _ (ArrAcc _ name iExp) vExp)) = do
+    addr <- getVarAddr name
+    vVal <- evalExp vExp
+    iVal <- evalInt iExp
+    arr <- readVarA addr name pos
+    case arr of
+        VArray vals -> do
+            let nArr = S.update iVal vVal vals
+            setVar addr $ VArray nArr
+            return $ SResCont id
+        _ -> fatalError "expected array - should be handled by TC"
 
 execStmt (SDeclAssign _ _ _) = undefined
 
@@ -301,13 +322,48 @@ execStmt (SFunCall _ fc) = do
     evalFunCall fc
     return $ SResCont id
 
-execStmt (SIf _ (IfBr _ cond tsb)) = undefined
+execStmt (SIf _ (IfBr _ cExp ts)) = do
+    cVal <- evalBool cExp
+    let contRes = SResCont incNextSubBlock
+    if cVal
+        then do
+            sRes <- execStmt ts
+            case sRes of
+                ss@SResSkip {} -> return ss
+                SResCont {} -> return contRes
+        else return contRes
+    
 
-execStmt (SIfEl _ (IfElBr _ cond tsb fs)) = undefined
+execStmt (SIfEl _ (IfElBr _ cExp tsb fs)) = do
+    cVal <- evalBool cExp
+    let contRes = SResCont (incNextSubBlock . incNextSubBlock)
+    if cVal
+        then do
+            rb <- local enterNextBlock $ execBlock tsb
+            case rb of
+                Nothing -> return contRes
+                Just b -> return $ SResSkip b
+        else do
+            rb <- local incNextSubBlock $ execStmt fs
+            case rb of
+                ss@SResSkip {} -> return ss
+                SResCont {} -> return contRes
 
-execStmt (SLoopWhile _ (LWhile _ cond s)) = undefined
+execStmt lw@(SLoopWhile _ (LWhile _ cExp s)) = do
+    cVal <- evalBool cExp
+    let contRes = SResCont incNextSubBlock
+    if cVal
+        then do
+            sRes <- execStmt s
+            case sRes of
+                SResCont {} -> execStmt lw
+                ss@(SResSkip bRes) -> case bRes of
+                    BResContinue -> execStmt lw
+                    BResBreak -> return contRes
+                    _ -> return ss
+        else return contRes
 
-execStmt (SLoopFor _ (LFor _ avar cond s)) = undefined
+execStmt (SLoopFor _ (LFor _ avar cExp s)) = undefined
 
 execStmt (SReturn _) = return $ SResSkip BResVoid
 
@@ -319,7 +375,11 @@ execStmt (SContinue _) = return $ SResSkip BResContinue
 
 execStmt (SBreak _) = return $ SResSkip BResBreak
 
-execStmt (SSubBlock _ sb) = undefined
+execStmt (SSubBlock _ sb) = do
+    rb <- local enterNextBlock $ execBlock sb
+    case rb of
+        Nothing -> return $ SResCont incNextSubBlock
+        Just b -> return $ SResSkip b
 
 
 evalExp :: Exp -> Interpreter VarValue
