@@ -49,12 +49,12 @@ buildCallMap fds = processLocalFuns fds [] M.empty where
         buildCallMapS _ [] _ m = m
         buildCallMapS bi (s:ss) ns m = case s of
             SSubBlock _ sb -> addSingleBlock sb
-            SIf _ (IfBr _ _ (SSubBlock _ sb)) -> addSingleBlock sb
+            SIf _ (IfBr _ _ s) -> addStmt s
             SIfEl _ ifel -> case ifel of
                 IfElBr _ _ tsb (SSubBlock _ fsb) -> buildCallMapB fsb (getSubBlockName 1) $ buildCallMapB tsb (getSubBlockName 0) $ getRestCallMap 2
-                IfElBr _ _ tsb _ -> addSingleBlock tsb
-            SLoopWhile _ (LWhile _ _ (SSubBlock _ sb)) -> addSingleBlock sb
-            SLoopFor _ (LFor _ _ _ (SSubBlock _ sb)) -> addSingleBlock sb
+                IfElBr _ _ tsb _ -> buildCallMapB tsb (getSubBlockName 0) $ getRestCallMap 2
+            SLoopWhile _ (LWhile _ _ s) -> addStmt s
+            SLoopFor _ (LFor _ _ _ s) -> addStmt s
             _ -> getRestCallMap 0
             where
                 getRestCallMap :: Int -> CallMap
@@ -63,6 +63,9 @@ buildCallMap fds = processLocalFuns fds [] M.empty where
                 getSubBlockName i = Ident (show (bi + i)):ns
                 addSingleBlock :: StmtBlock -> CallMap
                 addSingleBlock sb = buildCallMapB sb (getSubBlockName 0) $ getRestCallMap 1
+                addStmt :: Stmt -> CallMap
+                addStmt (SSubBlock _ sb) = addSingleBlock sb
+                addStmt _ = getRestCallMap 1
 
 
 data VarValue =
@@ -149,6 +152,7 @@ data RuntimeException =
     | ExcVarNotInitialized VarName BNFC'Position
     | ExcDivideByZero BNFC'Position
     | ExcIndexOutOfBounds VarName BNFC'Position
+    | ExcNegativeArrSize BNFC'Position
     deriving (Show)
 
 type IPResult a = Either RuntimeException a
@@ -350,21 +354,13 @@ execStmt (SIfEl _ (IfElBr _ cExp tsb fs)) = do
                 ss@SResSkip {} -> return ss
                 SResCont {} -> return contRes
 
-execStmt lw@(SLoopWhile _ (LWhile _ cExp s)) = do
-    cVal <- evalBool cExp
-    let contRes = SResCont incNextSubBlock
-    if cVal
-        then do
-            sRes <- execStmt s
-            case sRes of
-                SResCont {} -> execStmt lw
-                ss@(SResSkip bRes) -> case bRes of
-                    BResContinue -> execStmt lw
-                    BResBreak -> return contRes
-                    _ -> return ss
-        else return contRes
+execStmt lw@(SLoopWhile _ (LWhile _ cExp s)) = execWhileLoop cExp s
 
-execStmt (SLoopFor _ (LFor _ avar cExp s)) = undefined
+execStmt (SLoopFor _ (LFor _ (AVar _ name svExp) evExp s)) = do
+    svVal <- evalInt svExp
+    evVal <- evalInt evExp
+    itAddr <- allocVar
+    local (bindVar name itAddr) $ execForLoop itAddr svVal evVal s
 
 execStmt (SReturn _) = return $ SResSkip BResVoid
 
@@ -383,6 +379,36 @@ execStmt (SSubBlock _ sb) = do
         Just b -> return $ SResSkip b
 
 
+execWhileLoop :: Exp -> Stmt -> Interpreter StmtResult
+execWhileLoop cExp s = do
+    cVal <- evalBool cExp
+    let contRes = SResCont incNextSubBlock
+        nextIt = execWhileLoop cExp s
+    if cVal
+        then execLoopBody s contRes nextIt
+        else return contRes
+
+execForLoop :: VarAddress -> Int -> Int -> Stmt -> Interpreter StmtResult
+execForLoop itAddr curIt maxIt s = do
+    let contRes = SResCont incNextSubBlock
+        nextIt = execForLoop itAddr (curIt + 1) maxIt s
+    if curIt > maxIt 
+        then return contRes
+        else do
+            setVar itAddr $ VInt curIt
+            execLoopBody s contRes nextIt
+
+execLoopBody :: Stmt -> StmtResult -> Interpreter StmtResult -> Interpreter StmtResult
+execLoopBody body contRes nextIt = do
+    sRes <- execStmt body
+    case sRes of
+        SResCont {} -> nextIt
+        ss@(SResSkip bRes) -> case bRes of
+            BResContinue {} -> nextIt
+            BResBreak {} -> return contRes
+            _ -> return ss
+
+
 evalExp :: Exp -> Interpreter VarValue
 
 evalExp (EInt _ l) = case l of
@@ -397,8 +423,9 @@ evalExp (EBool _ b) = case b of
 
 evalExp (EVarRef pos name) = readVar name pos
 
-evalExp (EArrInit _ (ArrInit _ tn cExp)) = do
+evalExp (EArrInit pos (ArrInit _ tn cExp)) = do
     cInt <- evalInt cExp
+    when (cInt < 0) $ throwError $ ExcNegativeArrSize pos
     return $ VArray $ S.replicate cInt $ defaultValue tn
 
 evalExp (EArrConstr _ (ArrConstr _ els)) = evalConstr els VArray
