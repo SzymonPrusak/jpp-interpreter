@@ -3,14 +3,13 @@ module Main where
 import Control.Monad.Except (catchError, liftEither, MonadIO (liftIO))
 import Data.List (intercalate)
 import System.Environment (getArgs)
+import System.IO (hPutStrLn, stderr)
 
 import Gram.Abs
 import Gram.Par
 import Gram.Print
 import qualified Interpreter as IP
 import qualified TypeChecker as TC
-
-import Interpreter (IPResult)
 
 
 
@@ -27,7 +26,7 @@ run s = do
 runParser :: String -> IO (Maybe Prog)
 runParser s = case pProg $ myLexer s of
     Left err -> do
-        putStrLn $ "Parser error: " ++ err
+        hPutStrLn stderr $ "Parser error: " ++ err
         return Nothing
     Right prog -> return $ Just prog
 
@@ -36,11 +35,11 @@ runInterpreter fds = do
     res <- liftIO $ IP.runInterpreter fds
     case res of
         Right _ -> return ()
-        Left err -> putStrLn $ "Runtime exception: " ++ show err
+        Left err -> hPutStrLn stderr $ "Runtime exception: " ++ show err
 
 
 printTcErr :: TC.Error -> IO ()
-printTcErr e = putStrLn $ "Type checker error: " ++ getErrMsg e where
+printTcErr e = hPutStrLn stderr $ "Type checker error: " ++ getErrMsg e where
     getErrMsg :: TC.Error -> String 
     getErrMsg e = case e of
         TC.ErrFunRedef name pos -> "Function redefinition: " ++ quote name ++ getPosMsg pos
