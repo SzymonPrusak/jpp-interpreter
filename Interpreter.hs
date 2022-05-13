@@ -2,6 +2,7 @@ module Interpreter where
 
 import Data.Char (toLower)
 import qualified Data.Map as M
+import qualified Data.Sequence as S
 import Data.Maybe (fromMaybe)
 import Control.Monad.Except (ExceptT, MonadError (throwError), runExceptT, MonadIO (liftIO))
 import Control.Monad.Identity (IdentityT (runIdentityT))
@@ -67,16 +68,16 @@ data VarValue =
     VInt Int
     | VString String
     | VBool Bool
-    | VArray [VarValue]
-    | VTuple [VarValue]
+    | VArray (S.Seq VarValue)
+    | VTuple (S.Seq VarValue)
     deriving (Eq)
 
 defaultValue :: TypeName -> VarValue
 defaultValue (TNPrim _ (PTBool _)) = VBool False
 defaultValue (TNPrim _ (PTInt _)) = VInt 0
 defaultValue (TNPrim _ (PTString _)) = VString ""
-defaultValue (TNArr _ _) = VArray []
-defaultValue (TNTuple _ (TTupleType _ sts)) = VArray $ map (\(TupleSType _ tn) -> defaultValue tn) sts
+defaultValue (TNArr _ _) = VArray S.empty
+defaultValue (TNTuple _ (TTupleType _ sts)) = VArray $ S.fromList $ map (\(TupleSType _ tn) -> defaultValue tn) sts
 
 sureInt :: VarValue -> Int
 sureInt (VInt i) = i
@@ -90,7 +91,7 @@ sureBool :: VarValue -> Bool
 sureBool (VBool b) = b
 sureBool _ = fatalError "expected bool value - should be handled by TC"
 
-sureTuplArr :: VarValue -> [VarValue]
+sureTuplArr :: VarValue -> S.Seq VarValue
 sureTuplArr (VArray l) = l
 sureTuplArr (VTuple l) = l
 sureTuplArr _ = fatalError "expected array/tuple value - should be handled by TC"
@@ -160,20 +161,20 @@ runInterpreter fds = (runIdentityT . runExceptT . (`runReaderT` newLocalEnv) . (
 
 
 funPrintS :: [VarValue] -> Bool -> Interpreter (Maybe VarValue)
-funPrintS [VString s] endl = liftIO $ getPrintFun endl s >> return Nothing
-funPrintS _ _ = fatalError "invalid printS call - should be handled by TC"
+funPrintS [VString s] = funPrint s
+funPrintS _ = fatalError "invalid printS call - should be handled by TC"
 
 funPrintI :: [VarValue] -> Bool -> Interpreter (Maybe VarValue)
-funPrintI [VInt i] endl = liftIO $ getPrintFun endl (show i)>> return Nothing
-funPrintI _ _ = fatalError "invalid printI call - should be handled by TC"
+funPrintI [VInt i] = funPrint $ show i
+funPrintI _ = fatalError "invalid printI call - should be handled by TC"
 
 funPrintB :: [VarValue] -> Bool -> Interpreter (Maybe VarValue)
-funPrintB [VBool b] endl = liftIO $ getPrintFun endl (map toLower $ show b) >> return Nothing where
-    printFun = getPrintFun endl
-funPrintB _ _ = fatalError "invalid printS call - should be handled by TC"
+funPrintB [VBool b] = funPrint $ map toLower $ show b
+funPrintB _ = fatalError "invalid printS call - should be handled by TC"
 
-getPrintFun :: Bool -> (String -> IO())
-getPrintFun endl = if endl then putStrLn else putStr
+funPrint :: String -> Bool -> Interpreter (Maybe VarValue)
+funPrint s endl = liftIO $ printFun s >> return Nothing where
+    printFun = if endl then putStrLn else putStr
 
 
 resolveCall :: FunName -> Interpreter (Maybe (FunDef, BlockQName))
@@ -337,9 +338,7 @@ evalExp (EVarRef pos name) = readVar name pos
 
 evalExp (EArrInit _ (ArrInit _ tn cExp)) = do
     cInt <- evalInt cExp
-    return $ VArray $ [defaultEl | i <- [1..cInt]]
-    where
-        defaultEl = defaultValue tn
+    return $ VArray $ S.replicate cInt $ defaultValue tn
 
 evalExp (EArrConstr _ (ArrConstr _ els)) = evalConstr els VArray
 evalExp (ETupleConstr _ (TupleConstr _ els)) = evalConstr els VTuple
@@ -348,7 +347,7 @@ evalExp (EArrAcc pos (ArrAcc _ name iExp)) = do
     var <- readVar name pos
     let els = sureTuplArr var
     iInt <- evalInt iExp
-    return $ els !! iInt
+    return $ S.index els iInt
 
 evalExp (EFunCall _ fc) = do
     resM <- evalFunCall fc
@@ -410,10 +409,10 @@ evalExp (EAnd _ e1 e2) = evalBoolOp e1 e2 (&&)
 evalExp (EOr _ e1 e2) = evalBoolOp e1 e2 (||)
 
 
-evalConstr :: [ConstrEl] -> ([VarValue] -> VarValue) -> Interpreter VarValue
+evalConstr :: [ConstrEl] -> (S.Seq VarValue -> VarValue) -> Interpreter VarValue
 evalConstr els ctor = do
     m <- mapM (\(ConstrElem _ elExp) -> evalExp elExp) els
-    return $ ctor m
+    return $ ctor $ S.fromList m
 
 evalFunCall :: FunCall -> Interpreter (Maybe VarValue)
 evalFunCall (FuncCall _ name args) = do
