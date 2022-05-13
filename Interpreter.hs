@@ -1,9 +1,9 @@
 module Interpreter where
 
 import Data.Char (toLower)
+import Data.Foldable (Foldable(toList))
 import qualified Data.Map as M
 import qualified Data.Sequence as S
-import Data.Maybe (fromMaybe)
 import Control.Monad (when)
 import Control.Monad.Except (ExceptT, MonadError (throwError), runExceptT, MonadIO (liftIO))
 import Control.Monad.Identity (IdentityT (runIdentityT))
@@ -14,7 +14,22 @@ import Common
 import Gram.Abs
 import Gram.Print (printTree)
 
-import Debug.Trace (trace)
+
+
+-- ================================================
+import Data.List (intercalate)
+
+
+printNs :: BlockQName -> String
+printNs ns = intercalate ":" $ map printTree ns
+
+printCallMap :: CallMap -> String
+printCallMap cm = intercalate ",\n" els where
+    els = map (\(ns, funMap) -> "(" ++ printNs ns ++ ", { " ++ printFunMap funMap ++ " })") $ M.toList cm
+
+printFunMap :: FunMap -> String
+printFunMap fm = intercalate ",\n    " $ map ((++ "()") . printTree . fst) $ M.toList fm
+-- ================================================
 
 
 
@@ -163,6 +178,8 @@ runInterpreter :: [FunDef] -> IO (IPResult ())
 runInterpreter fds = (runIdentityT . runExceptT . (`runReaderT` newLocalEnv) . (`evalStateT` newGlobalEnv fds)) runInterpreter  where
     runInterpreter :: Interpreter ()
     runInterpreter = do
+        genv <- get
+        liftIO $ putStrLn $ printCallMap $ callMap genv
         mmain <- resolveCall (Ident "main")
         (main@(FunDefin _ _ _ args _), ns) <- maybe (throwError ExcEntryPointNotFound) return mmain
         let defArgs = map (\(FunPar _ (TypeDefin _ tn _) _) -> defaultValue tn) args
@@ -321,7 +338,10 @@ execStmt (SArrAssign pos (AArrAcc _ (ArrAcc _ name iExp) vExp)) = do
             return $ SResCont id
         _ -> fatalError "expected array - should be handled by TC"
 
-execStmt (SDeclAssign _ _ _) = undefined
+execStmt (SDeclAssign _ d vExp) = do
+    vVal <- evalExp vExp
+    m <- execDeclAssign d vVal
+    return $ SResCont m
 
 execStmt (SFunCall _ fc) = do
     evalFunCall fc
@@ -377,6 +397,18 @@ execStmt (SSubBlock _ sb) = do
     case rb of
         Nothing -> return $ SResCont incNextSubBlock
         Just b -> return $ SResSkip b
+
+
+execDeclAssign :: DeclA -> VarValue -> Interpreter IPLEnvMod
+execDeclAssign (DeclASingl _ _ name) value = do
+    addr <- allocVar
+    setVar addr value
+    return $ bindVar name addr
+execDeclAssign (DeclATuple _ ds) (VTuple vs) = do
+    let dvs = zip ds $ toList vs
+    m <- mapM (uncurry execDeclAssign) dvs
+    return $ foldr (.) id m
+execDeclAssign _ _ = fatalError "invalid decl assign - should be handled by TC"
 
 
 execWhileLoop :: Exp -> Stmt -> Interpreter StmtResult

@@ -10,7 +10,6 @@ import Gram.Print
 import qualified Interpreter as IP
 import qualified TypeChecker as TC
 
-import Debug (printCallMap)
 import Interpreter (IPResult)
 
 

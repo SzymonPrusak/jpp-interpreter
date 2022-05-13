@@ -5,13 +5,13 @@ fun int main()
         fun bool t() {}
     }
 
-    int a = t();
+    //int a = t();
 
     if (true)
     {
         fun string s() {}
 
-        string b = s();
+        //string b = s();
     }
 
     if (false)
@@ -24,9 +24,12 @@ fun int main()
         fun string c() {}
     }
 
+    while (false) ;
+
     while (true)
     {
         fun int d() {}
+        //printLnI(d());
     }
 
     for (z = 5 to 10)
