@@ -4,6 +4,7 @@ import Data.Char (toLower)
 import qualified Data.Map as M
 import qualified Data.Sequence as S
 import Data.Maybe (fromMaybe)
+import Control.Monad (when)
 import Control.Monad.Except (ExceptT, MonadError (throwError), runExceptT, MonadIO (liftIO))
 import Control.Monad.Identity (IdentityT (runIdentityT))
 import Control.Monad.Reader (ReaderT (runReaderT), MonadReader (ask, local))
@@ -147,6 +148,7 @@ data RuntimeException =
     ExcEntryPointNotFound
     | ExcVarNotInitialized VarName BNFC'Position
     | ExcDivideByZero BNFC'Position
+    | ExcIndexOutOfBounds VarName BNFC'Position
     deriving (Show)
 
 type IPResult a = Either RuntimeException a
@@ -159,11 +161,9 @@ runInterpreter fds = (runIdentityT . runExceptT . (`runReaderT` newLocalEnv) . (
     runInterpreter = do
         mmain <- resolveCall (Ident "main")
         (main@(FunDefin _ _ _ args _), ns) <- maybe (throwError ExcEntryPointNotFound) return mmain
-        callFunDef main ns $ defaultMainArgs args
+        let defArgs = map (\(FunPar _ (TypeDefin _ tn _) _) -> defaultValue tn) args
+        callFunDef main ns defArgs
         return ()
-        where
-            defaultMainArgs :: [FunParam] -> [VarValue]
-            defaultMainArgs args = map (\(FunPar _ (TypeDefin _ tn _) _) -> defaultValue tn) args
 
 
 funPrintS :: [VarValue] -> Bool -> Interpreter (Maybe VarValue)
@@ -311,6 +311,7 @@ execStmt (SArrAssign pos (AArrAcc _ (ArrAcc _ name iExp) vExp)) = do
     arr <- readVarA addr name pos
     case arr of
         VArray vals -> do
+            when (iVal < 0 || S.length vals <= iVal) $ throwError $ ExcIndexOutOfBounds name pos
             let nArr = S.update iVal vVal vals
             setVar addr $ VArray nArr
             return $ SResCont id
@@ -407,6 +408,7 @@ evalExp (EArrAcc pos (ArrAcc _ name iExp)) = do
     var <- readVar name pos
     let els = sureTuplArr var
     iInt <- evalInt iExp
+    when (iInt < 0 || S.length els <= iInt) $ throwError $ ExcIndexOutOfBounds name pos
     return $ S.index els iInt
 
 evalExp (EFunCall _ fc) = do

@@ -11,11 +11,12 @@ fun int main()
     {
         fun int a()
         {
-            main();
+            printLnS("not linked statically :(");
         }
         main();
     }
 
+    printLnS("still linked statically!");
     a();
     b();
 }

@@ -1,6 +1,6 @@
 module TypeChecker where
 
-import Control.Monad (guard, liftM2)
+import Control.Monad (liftM2, when, unless)
 import Control.Monad.Except (ExceptT, runExceptT, MonadError (throwError), liftEither)
 import Control.Monad.Identity (Identity (runIdentity))
 import Control.Monad.Reader (ReaderT (runReaderT), ask, local)
@@ -115,10 +115,9 @@ checkFunRedefs :: [FunDef] -> TCResult ()
 checkFunRedefs = checkFunRedefs S.empty where
     checkFunRedefs :: S.Set Ident -> [FunDef] -> TCResult ()
     checkFunRedefs s [] = return ()
-    checkFunRedefs s ((FunDefin pos _ name _ _):xs) = do
-        if S.member name s
-            then throwError $ ErrFunRedef name pos
-            else checkFunRedefs (S.insert name s) xs
+    checkFunRedefs s ((FunDefin pos _ name _ _):xs) = if S.member name s
+        then throwError $ ErrFunRedef name pos
+        else checkFunRedefs (S.insert name s) xs
 
 
 tcFunDefs :: [FunDef] -> TCReader ()
@@ -134,13 +133,12 @@ tcFunDef (FunDefin _ retTn name params b) = local (setParamVars params . addRetT
 
 tcStmtBlock :: StmtBlock -> TCReader ()
 tcStmtBlock (StmtBlck _ bs) = do
+    let sfs = getSubFunDefs bs
+        sss = getSubStmts bs
     liftEither $ checkFunRedefs sfs
     local (addFuns sfs) $ do
         tcFunDefs sfs
         tcStmts sss
-    where
-        sfs = getSubFunDefs bs
-        sss = getSubStmts bs
 
 
 tcStmts :: [Stmt] -> TCReader ()
@@ -229,9 +227,8 @@ tcStmt (SSubBlock _ sb) = do
 declareVar :: TypeDef -> Ident -> BNFC'Position -> TCReader TCEnvMod
 declareVar td name pos = do
     env <- ask
-    if M.member name (vars env)
-        then throwError $ ErrVarRedef name pos
-        else return $ addVar td name
+    when (M.member name (vars env)) $ throwError $ ErrVarRedef name pos
+    return $ addVar td name
 
 tcDeclAssign :: DeclA -> Exp -> TCReader TCEnvMod
 tcDeclAssign decl exp = do
@@ -255,9 +252,8 @@ tcDeclAssign decl exp = do
 requireInLoop :: BNFC'Position -> TCReader TCEnvMod
 requireInLoop pos = do
     env <- ask
-    if inLoop env
-        then return id
-        else throwError $ ErrNotInLoop pos
+    unless (inLoop env) $ throwError $ ErrNotInLoop pos
+    return id
 
 checkAssignment :: TypeMod -> Ident -> BNFC'Position -> TCResult ()
 checkAssignment mod name pos = case mod of
@@ -327,9 +323,8 @@ tcExp (EAdd pos e1 op e2) env = do
     t1 <- tcExp e1 env
     t2 <- tcExp e2 env
     expectSameTn t1 t2 (Ident "addition") pos
-    if isValidAdd t1 op
-        then return t1
-        else throwError $ ErrUnsuppAdd t1 t2 pos
+    unless (isValidAdd t1 op) $ throwError $ ErrUnsuppAdd t1 t2 pos
+    return t1
     where
         isValidAdd :: TypeName -> AddOp -> Bool
         isValidAdd tn AOPlus {} = compareTypes tn stringTn || compareTypes tn intTn
@@ -354,7 +349,7 @@ tcExp (EAnd pos e1 e2) env = tcBoolOp e1 e2 env pos
 tcExp (EOr pos e1 e2) env = tcBoolOp e1 e2 env pos
 
 tcBoolOp :: Exp -> Exp -> TCEnv -> BNFC'Position -> TCResult TypeName
-tcBoolOp e1 e2 env pos =do
+tcBoolOp e1 e2 env pos = do
     expect2Bool e1 e2 env pos
     return boolTn
 
