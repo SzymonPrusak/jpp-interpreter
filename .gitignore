@@ -1,7 +1,11 @@
 bnfc
 Gram
 Makefile
+Makefile.bak
 
 *.hi
 *.exe
 *.o
+
+prog/dobre
+prog/zle
