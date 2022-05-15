@@ -1,0 +1,70 @@
+Interpreter języka imperatywnego ze statycznym typecheckerem na składni podobnej do C/Javy.
+
+W katalogu src/Gram znajdują się pliki wygenerowane przy pomocy narzędzia BNFC ("bnfc -d -m gram.cf --functor" w katalogu src).
+Struktura rozwiązania (katalog src):
+    gram.cf - gramatyka BNFC,
+    Common.hs - wspólne metody dla interpretera i type checkera,
+    TypeHelper.hs - pomocnicze metody do porównywania/tworzenia nazw typów,
+    TypeChecker.hs - moduł type checkera,
+    Interpreter.hs - moduł interpretera,
+    Main.hs punkt wejściowy.
+
+Do skompilowania wymagane narzędzia Alex i Happy, oraz kompilator GHC.
+
+Tabelka cech:
+    Na 15 punktów
+        01 (trzy typy) (+)
+        02 (literały, arytmetyka, porównania) (+)
+        03 (zmienne, przypisanie) (+)
+        04 (print) (+)
+        05 (while, if) (+)
+        06 (funkcje lub procedury, rekurencja) (+)
+        -----07 (przez zmienną / przez wartość / in/out)-----
+        08 (zmienne read-only i pętla for) (+)
+    Na 20 punktów
+        09 (przesłanianie i statyczne wiązanie) (+)
+        10 (obsługa błędów wykonania) (+)
+        11 (funkcje zwracające wartość) (+)
+    Na 30 punktów
+        12 (4) (statyczne typowanie) (+)
+        13 (2) (funkcje zagnieżdżone ze statycznym wiązaniem) (+)
+        14 (1/2) (rekordy/listy/tablice/tablice wielowymiarowe) (+ indeksowane tablice)
+        15 (2) (krotki z przypisaniem) (+)
+        16 (1) (break, continue) (+)
+        -----17 (4) (funkcje wyższego rzędu, anonimowe, domknięcia)-----
+        -----18 (3) (generatory)-----
+
+Uruchamianie:
+    Wczytywanie programu ze standardowego wejścia: ./interpreter
+    Wczytywanie programu z pliku: ./interpreter <nazwa pliku z programem>
+
+Zaimplementowane typy: string, int, bool
+Arytmetyka:
+    Arytmetyka dwuargumentowa (+, -, *, /, %).
+    Dodawanie stringów (s1 + s2).
+    Równość (==, !=) dla wszystkich typów (włącznie z krotkami).
+    Porównania liczb (>, <, >=, <=).
+Zmienne:
+    Deklaracja i przypisanie standardowo.
+    Dodatkowo zmienne read-only oznaczane "readonly" po nazwie typu, np. "int readonly a = 5;", "(string, bool[]) readonly b = ~("aaa", [true, false]);".
+Pętle:
+    Pętla while "while (<wyrażenie bool>) <body>".
+    Pętla for "for (<nazwa zmiennej> = <obiekt int> to <obiekt int>) <body>".
+    Pętle wspierają "break" i "continue" o standardowym działaniu.
+Funkcje:
+    Definiowanie funkcji/procedur przez "fun <zwracany typ/void> <nazwa> (<param 1>, <param 2>, ...) <blok>".
+    Dowolne zagnieżdżanie.
+    Przesłanianie i statyczne wiązanie identyfikatorów.
+    Jeśli funkcja wykona się do końca i nie natrafi na "return <wartość>", to zwraca domyślną wartość dla danego typu (dla int 0, dla string "", dla bool false, dla (string, int) ~("", 0), itd.).
+Tablice:
+    Nazwa typu tablicowego przez dodanie "[]" po pierwotnym typie, np. "int[]", "string[]", "(string, int)[]".
+    Tworzenie nowej tablicy wypełnionej domyślnymi wartościami przez użycie "new <typ>[<obiekt int>]", np. "new int[5]", "new (string, bool)[10]".
+    Dowolne "zagnieżdżanie" tablic, tj. "int[][][]", "string[][]", itd. są poprawnymi typami.
+    Konstrukcja tablic z podanych elementów, tj. "[5,6,7]" jest wyrażeniem typu "int[]", np. "(int, string)[] a = [~(5, "aaa"), ~(10, "bbbb")];".
+Krotki:
+    Dowolnie zagnieżdżanie, np. (int, (bool, string, int)[][], string, (int, string)) jest poprawnym typem.
+    Konstrukcja krotek za pomocą "~()", np. "~(5, true)" jest wyrażeniem typu "(int, bool)".
+    Dekonstrukcja krotek za pomocą instrukcji "~()", np. "~(int a, string b) = c;" gdzie "c = ~(5, "aaaa")" przypisze a = 5 i b = "aaaa".
+
+Wszystkie elementy są ze sobą "kombinowalne", tzn. krotka z tablicami jest poprawnym typem, tak samo jak tablica krotek.
+Jedno i drugie może być zmienną, zatem może być readonly i może być przekazane do funkcji (lub z niej zwrócone).

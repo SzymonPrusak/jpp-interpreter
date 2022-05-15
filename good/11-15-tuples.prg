@@ -38,6 +38,8 @@ fun void printTuple2((int, (bool, bool)) readonly t)
 
 fun void main()
 {
+    (int, (bool, string, int)[][], string, (int, string)) complexTuple;
+    
     int readonly n = 100;
 
     (int, (bool, bool))[] even = areEven(n);

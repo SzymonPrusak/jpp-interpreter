@@ -72,14 +72,14 @@ data VarValue =
     | VBool Bool
     | VArray (S.Seq VarValue)
     | VTuple (S.Seq VarValue)
-    deriving (Eq)
+    deriving (Eq, Show)
 
 defaultValue :: TypeName -> VarValue
 defaultValue (TNPrim _ (PTBool _)) = VBool False
 defaultValue (TNPrim _ (PTInt _)) = VInt 0
 defaultValue (TNPrim _ (PTString _)) = VString ""
 defaultValue (TNArr _ _) = VArray S.empty
-defaultValue (TNTuple _ (TTupleType _ sts)) = VArray $ S.fromList $ map (\(TupleSType _ tn) -> defaultValue tn) sts
+defaultValue (TNTuple _ (TTupleType _ sts)) = VTuple $ S.fromList $ map (\(TupleSType _ tn) -> defaultValue tn) sts
 
 sureInt :: VarValue -> Int
 sureInt (VInt i) = i
