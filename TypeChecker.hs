@@ -11,15 +11,6 @@ import Gram.Abs
 import Common
 import TypeHelper
 
-{-
-uwagi:
-1. domyślny return
-
-todo:
-1. ++++dekonstrukcja krotek
-2. ----reader w funkcjach które używają env
--}
-
 
 
 type FunMap = M.Map Ident FunDef

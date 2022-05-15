@@ -18,8 +18,7 @@ run s = do
     p <- runParser s
     case p of
         Just (Program _ fds) -> case TC.runTc fds of
-            Right _ ->
-                runInterpreter fds
+            Right _ -> runInterpreter fds
             Left err -> printTcErr err
         Nothing -> return ()
 
@@ -35,7 +34,7 @@ runInterpreter fds = do
     res <- liftIO $ IP.runInterpreter fds
     case res of
         Right _ -> return ()
-        Left err -> hPutStrLn stderr $ "Runtime exception: " ++ show err
+        Left err -> printIpError err
 
 
 printTcErr :: TC.Error -> IO ()
@@ -56,19 +55,33 @@ printTcErr e = hPutStrLn stderr $ "Type checker error: " ++ getErrMsg e where
         TC.ErrNonEmptyReturn pos -> "return <value> in void function" ++ getPosMsg pos
         TC.ErrEmptyReturn exp pos -> "return in non-void function returning " ++ printTree exp ++ getPosMsg pos
         TC.ErrNotInLoop pos -> "Usage of loop control in non-loop body" ++ getPosMsg pos
-    quote :: Ident -> String
-    quote s = '\"':printTree s ++ "\""
     printTns :: [TypeName] -> String
     printTns = intercalate ", " . map printTree
-    getPosMsg :: BNFC'Position -> String
-    getPosMsg (Just (line, col)) = " at line " ++ show line ++ ", near column " ++ show col
-    getPosMsg Nothing = " at no position given"
+
+printIpError :: IP.RuntimeException -> IO ()
+printIpError e = hPutStrLn stderr $ "Runtime exception: " ++ getExcMsg e where
+    getExcMsg :: IP.RuntimeException -> String
+    getExcMsg e = case e of
+        IP.ExcEntryPointNotFound -> "Entry point not found"
+        IP.ExcVarNotInitialized name pos -> "Usage of not initialized variable " ++ quote name ++ getPosMsg pos
+        IP.ExcDivideByZero pos -> "Divide by zero" ++ getPosMsg pos
+        IP.ExcIndexOutOfBounds name pos -> "Index out of bounds - variable " ++ quote name ++ getPosMsg pos
+        IP.ExcNegativeArrSize pos -> "Negative array size" ++ getPosMsg pos
+
+quote :: Ident -> String
+quote s = '\"':printTree s ++ "\""
+printTns :: [TypeName] -> String
+printTns = intercalate ", " . map printTree
+getPosMsg :: BNFC'Position -> String
+getPosMsg (Just (line, col)) = " at line " ++ show line ++ ", near column " ++ show col
+getPosMsg Nothing = " at no position given"
 
 
 main :: IO ()
 main = do
     args <- getArgs
     case args of
+        [] -> getContents >>= run
         [path] -> readFile path >>= run
         _ -> putStrLn "usage: Call with filename to interpret"
         

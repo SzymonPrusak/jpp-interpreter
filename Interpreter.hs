@@ -16,23 +16,6 @@ import Gram.Print (printTree)
 
 
 
--- ================================================
-import Data.List (intercalate)
-
-
-printNs :: BlockQName -> String
-printNs ns = intercalate ":" $ map printTree ns
-
-printCallMap :: CallMap -> String
-printCallMap cm = intercalate ",\n" els where
-    els = map (\(ns, funMap) -> "(" ++ printNs ns ++ ", { " ++ printFunMap funMap ++ " })") $ M.toList cm
-
-printFunMap :: FunMap -> String
-printFunMap fm = intercalate ",\n    " $ map ((++ "()") . printTree . fst) $ M.toList fm
--- ================================================
-
-
-
 fatalError m = error $ "interpreter fatal: " ++ m
 
 
@@ -178,8 +161,6 @@ runInterpreter :: [FunDef] -> IO (IPResult ())
 runInterpreter fds = (runIdentityT . runExceptT . (`runReaderT` newLocalEnv) . (`evalStateT` newGlobalEnv fds)) runInterpreter  where
     runInterpreter :: Interpreter ()
     runInterpreter = do
-        genv <- get
-        liftIO $ putStrLn $ printCallMap $ callMap genv
         mmain <- resolveCall (Ident "main")
         (main@(FunDefin _ _ _ args _), ns) <- maybe (throwError ExcEntryPointNotFound) return mmain
         let defArgs = map (\(FunPar _ (TypeDefin _ tn _) _) -> defaultValue tn) args
