@@ -1,4 +1,0 @@
-fun int main()
-{
-    return;
-}
