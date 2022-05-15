@@ -38,6 +38,9 @@ Uruchamianie:
     Wczytywanie programu ze standardowego wejścia: ./interpreter
     Wczytywanie programu z pliku: ./interpreter <nazwa pliku z programem>
 
+    Program jest parsowany, następnie sprawdza go type checker.
+    Dopiero wtedy włączany jest interpreter, który szuka funkcji main() i ją wywołuje (z domyślnymi argumentami, jeśli main() ma parametry).
+
 Zaimplementowane typy: string, int, bool
 Arytmetyka:
     Arytmetyka dwuargumentowa (+, -, *, /, %).
